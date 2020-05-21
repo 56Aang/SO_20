@@ -10,8 +10,18 @@
 
 #define MAX_LINE_SIZE 1024
 
-void dummy(int i){
-    ;
+
+int readlinha(int fd, char * buffer, int nbyte){
+	int i = 0;
+
+	while(i < nbyte-1 && read(fd, buffer + i, 1 ) > 0 && buffer[i] != '\n')
+        i++;
+    if (i >= nbyte)
+        buffer[i] = '\n';
+    else
+        buffer[i] = '\0';
+
+    return i;
 }
 
 int main(){
@@ -36,26 +46,17 @@ int main(){
         printf("[DEBUG] opened fifo cl-sv for [reading]\n");
 
     if((pid = fork()) == 0){
-        while((res = read(0,buf,MAX_LINE_SIZE)) > 0)
-            write(fd_cl_sv_write,buf,res);
-        kill(getppid(), SIGCHLD);
+        while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){
+            write(1,buf,res);
+        }
         _exit(0);
     }
-    else{ // lê do pipe, escreve no ecrâ
-        while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){
-            if(signal(SIGCHLD,dummy)) {
-                printf("oi\n");
-                break;
-            }
-            else
-            {
-                printf("oi2\n");
-            }
-            
-            write(1,buf,res);
-            
-        }
-       
+    else{ // lê do ecrã, escreve no pipe
+        while((res = read(0,buf,MAX_LINE_SIZE)) > 0){
+            write(fd_cl_sv_write,buf,res);
+        }        
+        kill(pid,SIGKILL);
+
     }
     
 

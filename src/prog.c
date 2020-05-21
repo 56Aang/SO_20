@@ -20,6 +20,82 @@ void setTimeExecution(int t){
     time_execution = t;
 }
 
+int exec(int argc, char* argv[]){
+
+	int i, pid;
+	int status[argc];
+	int p[argc-1][2];
+
+	for(i = 0; i < argc; i++){
+		//Primeiro comando
+		if(i == 0){
+			if(pipe(p[i]) == -1){
+				perror("pipe");
+				return -1;
+			}
+			switch(pid = fork()){
+				case -1:
+					perror("fork");
+					return -1;
+				case 0:
+					close(p[i][0]);
+					dup2(p[i][1], 1);
+					close(p[i][1]);
+					exec_command(comandos[i]);
+					_exit(-1);
+				default:
+					close(p[i][1]);
+			}
+		}
+		//Ultimo comando
+		if(i == argc-1){
+			switch(pid = fork()){
+				case -1:
+					perror("fork");
+					return -1;
+				case 0:
+					dup2(p[i-1][0], 0);
+					close(p[i-1][0]);
+					exec_command(comandos[i]);
+					_exit(-1);
+				default:
+					close(p[i-1][0]);
+			}
+		}
+		//Comandos intermedios
+		else{
+			if(pipe(p[i]) != 0){
+				perror("pipe");
+				return -1;
+			}
+			switch(pid = fork()){
+				case -1:
+					perror("fork");
+					return -1;
+				case 0:
+					close(p[i][0]);
+					dup2(p[i][1], 1);
+					close(p[i][1]);
+
+					dup2(p[i-1][0], 0);
+					close(p[i-1][0]);
+
+					exec_command(comandos[i]);
+					_exit(-1);
+				default:
+					break;
+
+			}
+		}
+	}
+
+	for(i = 0; i < argc; i++) wait(&status[i]);
+
+	return 0;
+}
+
+
+
 int readlinha(int fd, char * buffer, int nbyte){
 	int i = 0;
 
@@ -34,18 +110,30 @@ int readlinha(int fd, char * buffer, int nbyte){
 }
 
 int printalogs(){
-	int fd = open("log.txt",O_RDONLY);
-	printf("%d\n",fd);
+	int fd;
+	char i = 0;
+	if((fd = open("log.txt",O_RDONLY)) == -1){
+		perror("open printalogs");
+		return -1;
+	}
 	int res;
 	char buf[MAX_LINE_SIZE];
-	while((res = read(fd,buf,MAX_LINE_SIZE)) > 0)
+
+	while((res = read(fd,buf,MAX_LINE_SIZE)) > 0){
 		write(1,buf,res);
+	}
+	
+	close(fd);
 	return 0;
 }
 
 
+
 int interpreter(char *line){
-    char *string = strtok(line," ");
+	int r = 1;
+	char *aux = malloc(strlen(line) * sizeof(char));
+	strcpy(aux,line);
+    char *string = strtok(aux," ");
     if(strcmp(string,"tempo-inatividade") == 0){
         setTimeInactivity(atoi(strtok(NULL," ")));
 		write(1,"changed\n",9);
@@ -54,10 +142,18 @@ int interpreter(char *line){
         setTimeExecution(atoi(strtok(NULL," ")));
     	write(1,"changed\n",9);
 	}
-	else if(strcmp(string,"logs")) 
+	else if(strcmp(string,"exe") == 0){
+		// funcao pipes| | |
+	}
+	else if(strcmp(string,"logs") == 0) {
 		printalogs();
-    
-	return 1;
+		r = 0; // não insere no logs.txt
+	}
+    else r = 0;
+
+	free(aux);
+
+	return r;
 }
 
 int main(){
@@ -65,20 +161,41 @@ int main(){
 	int bytes_read;
 	int logfile, fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
 	int pid;
+	int status;
+	int fd_logs[2];
 
 	if((pid = fork()) == 0){
-		execl("/home/joao/SO/src/mkfifo","mkfifo",NULL);
-		_exit(-1);
+		execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
+		_exit(1);
 	}
 	else{
-		wait(0L);
+		wait(&status);
+	}
+	if(pipe(fd_logs)<0){
+		perror("Pipe fd_logs");
+		_exit(0);
 	}
 
 
-	if((logfile = open("log.txt",O_CREAT | O_WRONLY),0666) == -1){
-		perror("open");
-		return -1;
+	if((logfile = open("log.txt" , O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1){
+			perror("open write log");
+			return -1;
 	}
+
+	// pipe que recebe dados log's, e escreve no .txt
+	if((pid = fork()) == 0){
+		close(fd_logs[1]);
+		dup2(fd_logs[0],0);
+		close(fd_logs[0]);
+		dup2(logfile,1);
+		close(logfile);
+		while((bytes_read = read(0,buf,MAX_LINE_SIZE)) > 0){
+			write(1,buf,bytes_read);
+			write(1,"\n",2);
+		}
+	}
+	close(fd_logs[0]);
+
 
 
 	// open named pipe for reading 
@@ -115,15 +232,16 @@ int main(){
 		printf("[DEBUG] opened fifo sv-cl for reading\n");
 	
 
-	while((bytes_read = readlinha(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0){ // lê do pipe, executa
+	while(((bytes_read = readlinha(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0) || buf[0] == '\0'){ // lê do pipe, executa
 		if((pid = fork()) == 0){ // executa, escreve no pipe
 			dup2(fd_sv_cl_write,1);
-    	    interpreter(buf);
-
+    	    if(interpreter(buf)){
+				write(fd_logs[1],buf,bytes_read);
+			}
     	    _exit(0);
     	}
-		write(logfile,buf,bytes_read);
-    	
+		
+
 	}
 
 
