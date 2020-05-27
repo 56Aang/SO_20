@@ -6,94 +6,9 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <signal.h>
 
 #define MAX_LINE_SIZE 1024
-
-int time_inactivity = -1; // -1 -> infinito
-int time_execution = -1;  // -1 -> infinito
-
-void setTimeInactivity(int t){
-    time_inactivity = t;
-}
-
-void setTimeExecution(int t){
-    time_execution = t;
-}
-
-int exec(int argc, char* argv[]){
-
-	int i, pid;
-	int status[argc];
-	int p[argc-1][2];
-
-	for(i = 0; i < argc; i++){
-		//Primeiro comando
-		if(i == 0){
-			if(pipe(p[i]) == -1){
-				perror("pipe");
-				return -1;
-			}
-			switch(pid = fork()){
-				case -1:
-					perror("fork");
-					return -1;
-				case 0:
-					close(p[i][0]);
-					dup2(p[i][1], 1);
-					close(p[i][1]);
-					exec_command(comandos[i]);
-					_exit(-1);
-				default:
-					close(p[i][1]);
-			}
-		}
-		//Ultimo comando
-		if(i == argc-1){
-			switch(pid = fork()){
-				case -1:
-					perror("fork");
-					return -1;
-				case 0:
-					dup2(p[i-1][0], 0);
-					close(p[i-1][0]);
-					exec_command(comandos[i]);
-					_exit(-1);
-				default:
-					close(p[i-1][0]);
-			}
-		}
-		//Comandos intermedios
-		else{
-			if(pipe(p[i]) != 0){
-				perror("pipe");
-				return -1;
-			}
-			switch(pid = fork()){
-				case -1:
-					perror("fork");
-					return -1;
-				case 0:
-					close(p[i][0]);
-					dup2(p[i][1], 1);
-					close(p[i][1]);
-
-					dup2(p[i-1][0], 0);
-					close(p[i-1][0]);
-
-					exec_command(comandos[i]);
-					_exit(-1);
-				default:
-					break;
-
-			}
-		}
-	}
-
-	for(i = 0; i < argc; i++) wait(&status[i]);
-
-	return 0;
-}
-
 
 
 int readlinha(int fd, char * buffer, int nbyte){
@@ -109,147 +24,79 @@ int readlinha(int fd, char * buffer, int nbyte){
     return i;
 }
 
-int printalogs(){
-	int fd;
-	char i = 0;
-	if((fd = open("log.txt",O_RDONLY)) == -1){
-		perror("open printalogs");
-		return -1;
-	}
-	int res;
-	char buf[MAX_LINE_SIZE];
 
-	while((res = read(fd,buf,MAX_LINE_SIZE)) > 0){
-		write(1,buf,res);
-	}
-	
-	close(fd);
-	return 0;
-}
-
-
-
-int interpreter(char *line){
-	int r = 1;
-	char *aux = malloc(strlen(line) * sizeof(char));
-	strcpy(aux,line);
-    char *string = strtok(aux," ");
-    if(strcmp(string,"tempo-inatividade") == 0){
-        setTimeInactivity(atoi(strtok(NULL," ")));
-		write(1,"changed\n",9);
+char* createBuf(int argc, char* argv[]){
+    int tam = 0;
+    int i;
+    int k = 0;
+    for(i = 1; i < argc ; i++) tam += strlen(argv[i]);
+    char * buf = malloc(sizeof(char) * (tam + argc-1 + 2)); // tamanho dos argumentos + o numero de espaços + \0
+    for(i = 1 ; i<argc; i++){
+        strcpy(buf+k,argv[i]);
+        k += strlen(argv[i]);
+        if(i != argc-1){
+            buf[k++] = ' ';
+        }
     }
-    else if(strcmp(string,"tempo-execucao") == 0){
-        setTimeExecution(atoi(strtok(NULL," ")));
-    	write(1,"changed\n",9);
-	}
-	else if(strcmp(string,"exe") == 0){
-		// funcao pipes| | |
-	}
-	else if(strcmp(string,"logs") == 0) {
-		printalogs();
-		r = 0; // não insere no logs.txt
-	}
-    else r = 0;
-
-	free(aux);
-
-	return r;
+    return buf;
 }
 
-int main(){
-	char buf[MAX_LINE_SIZE];
-	int bytes_read;
-	int logfile, fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
-	int pid;
-	int status;
-	int fd_logs[2];
+int main(int argc, char* argv[]){
+    int res;
+    char buf[MAX_LINE_SIZE];
+    int fd_cl_sv_write, fd_sv_cl_read;
+    int pid;
+    int status;
 
-	if((pid = fork()) == 0){
-		execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
-		_exit(1);
-	}
-	else{
-		wait(&status);
-	}
-	if(pipe(fd_logs)<0){
-		perror("Pipe fd_logs");
-		_exit(0);
-	}
+    if((fd_cl_sv_write = open("fifo-cl-sv",O_WRONLY)) == -1){ // open named pipe for write (cliente -> sv)
+        perror("open");
+        return -1;
+    }
+    else 
+        printf("[DEBUG] opened fifo cl-sv for [writing]\n");
 
 
-	if((logfile = open("log.txt" , O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1){
-			perror("open write log");
-			return -1;
-	}
+    if((fd_sv_cl_read = open("fifo-sv-cl",O_RDONLY)) == -1){ // open named pipe for read (sv -> cliente)
+       perror("open");
+        return -1;
+    }
+    else
+        printf("[DEBUG] opened fifo cl-sv for [reading]\n");
 
-	// pipe que recebe dados log's, e escreve no .txt
-	if((pid = fork()) == 0){
-		close(fd_logs[1]);
-		dup2(fd_logs[0],0);
-		close(fd_logs[0]);
-		dup2(logfile,1);
-		close(logfile);
-		while((bytes_read = read(0,buf,MAX_LINE_SIZE)) > 0){
-			write(1,buf,bytes_read);
-			write(1,"\n",2);
-		}
-	}
-	close(fd_logs[0]);
+    if((pid = fork()) == 0){
+        if(argc > 1){
+            res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE);
+            write(1,buf,res);
+        }
+        
+        else{
+            while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){ // escrever tudo que vem do pipe sv->cl no terminal
+                write(1,buf,res);
+            }
+            _exit(0);
+        }
+    }
+    else{ // lê do ecrã, escreve no pipe (cl -> sv)
 
+        if(argc > 1){ // ./prog xxx xxx xxx (linha de comandos)
+            char *a = createBuf(argc,argv);
+            write(fd_cl_sv_write,a,strlen(a));
+            write(fd_cl_sv_write,"\n",2);
 
+        }
+        else{ // ./prog -> interface interpretada
 
-	// open named pipe for reading 
-	if((fd_cl_sv_read = open("fifo-cl-sv",O_RDONLY)) == -1){
-		perror("open");
-		return -1;
-	}
-	else
-		printf("[DEBUG] opened fifo cl-sv for [reading]\n");
+            while((res = read(0,buf,MAX_LINE_SIZE)) > 0){
+                write(fd_cl_sv_write,buf,res);
+            }        
+            kill(pid,SIGKILL); // quando acaba, mata o processo que está a ler do pipe -> prog termina
+        }
 
-	// open named pipe for writing to handle asynchronous clients
-	if((fd_cl_sv = open("fifo-cl-sv", O_WRONLY)) == -1){
-		perror("open");
-		return -1;
-	}
-	else
-		printf("[DEBUG] opened fifo cl-sv for writing\n");
+    }
+    
 
+    close(fd_cl_sv_write);
+    close(fd_sv_cl_read);
 
-	// open named pipe for writing
-	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-		perror("open");
-		return -1;
-	}
-	else
-		printf("[DEBUG] opened fifo sv-cl for [writing]\n");
-
-	// open named pipe for writing to handle asynchronous clients
-	if((fd_sv_cl = open("fifo-sv-cl", O_RDONLY)) == -1){
-		perror("open");
-		return -1;
-	}
-	else
-		printf("[DEBUG] opened fifo sv-cl for reading\n");
-	
-
-	while(((bytes_read = readlinha(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0) || buf[0] == '\0'){ // lê do pipe, executa
-		if((pid = fork()) == 0){ // executa, escreve no pipe
-			dup2(fd_sv_cl_write,1);
-    	    if(interpreter(buf)){
-				write(fd_logs[1],buf,bytes_read);
-			}
-    	    _exit(0);
-    	}
-		
-
-	}
-
-
-
-	close(logfile);
-	close(fd_cl_sv_read);
-	close(fd_cl_sv);
-	close(fd_sv_cl);
-	close(fd_sv_cl_write);
-
+    return 0;
 }
