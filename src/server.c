@@ -128,12 +128,155 @@ int printalogs(){
 }
 
 
+int exec_command(char* command)
+{
+    char* exec_args[20];
+    char* string;
+    int exec_ret = 0;
+    int i = 0;
+
+    string = strtok(command, " ");
+
+    while (string != NULL) {
+        exec_args[i] = string;
+        string = strtok(NULL," ");
+        i++;
+    }
+
+    exec_args[i] = NULL;
+
+    exec_ret = execvp(exec_args[0], exec_args);
+
+    return exec_ret;
+}
+
+int exec_pipe(char *buffer){
+
+// contar número de comandos passados à função
+	int n = 1;                                  // -> número de comandos
+    for (int i = 0; i < strlen(buffer); i++) {
+        if (buffer[i] == '|')
+            n++;
+    }
+
+    // parse do buffer para comandos
+    char commands [n][128];                     // -> array com os comandos
+    bzero(commands, n * 128 * sizeof(char));    // -> coloca array a zero
+
+    for (int i_buffer = 0, i_commands = 0, i_command = 0; i_buffer < strlen(buffer); i_buffer++) {
+        if (buffer[i_buffer] == '|') {
+            commands[i_commands][i_command] = '\0';
+            i_commands++;
+            i_command = 0;
+        }
+        else if (buffer[i_buffer] != '\n'){
+            commands[i_commands][i_command] = buffer[i_buffer];
+            i_command++;
+        }
+    }
+
+    int p[n-1][2];                              // -> matriz com os fd's dos pipes
+    int status[n];                              // -> array que guarda o return dos filhos
+
+    // criar os pipes conforme o número de comandos
+    for (int i = 0; i < n-1; i++) {
+        if (pipe(p[i]) == -1) {
+            perror("Pipe não foi criado");
+            return -1;
+        }
+    }
+
+    // criar processos filhos para executar cada um dos comandos
+    for (int i = 0; i < n; i++) {
+
+        if (i == 0) {
+            switch(fork()) {
+                case -1:
+                    perror("Fork não foi efetuado");
+                    return -1;
+                case 0:
+                    // codigo do filho 0
+
+                    close(p[i][0]);
+
+                    dup2(p[i][1],1);
+                    close(p[i][1]);
+
+                    exec_command(commands[i]);
+
+                    _exit(0);
+                default:
+                    close(p[i][1]);
+            }
+        }
+        else if (i == n-1) {
+            switch(fork()) {
+                case -1:
+                    perror("Fork não foi efetuado");
+                    return -1;
+                case 0:
+                    // codigo do filho n-1
+
+                    dup2(p[i-1][0],0);
+                    close(p[i-1][0]);
+
+                    exec_command(commands[i]);
+
+                    _exit(0);
+                default:
+                    close(p[i-1][0]);
+            }
+        }
+        else {
+            switch(fork()) {
+                case -1:
+                    perror("Fork não foi efetuado");
+                    return -1;
+                case 0:
+                    // codigo do filho i
+
+                    dup2(p[i-1][0],0);
+                    close(p[i-1][0]);
+
+                    dup2(p[i][1],1);
+                    close(p[i][1]);
+
+                    close(p[i][0]);
+
+                    exec_command(commands[i]);
+
+                    _exit(0);
+                default:
+                    close(p[i-1][0]);
+                    close(p[i][1]);
+            }
+        }
+
+    }
+
+    for (int i = 0; i < n; i++)
+    {
+        wait(&status[i]);
+
+        //if (WIFEXITED(status[i])) {
+        //    printf("[PAI]: filho terminou com %d\n", WEXITSTATUS(status[i]));
+        //}
+    }
+
+    bzero(buffer, 128 * sizeof(char));
+    //printf("\n\n");
+
+	return 0;
+}
+
+
 
 int interpreter(char *line){
 	int r = 1;
 	char *aux = malloc(strlen(line) * sizeof(char));
 	strcpy(aux,line);
     char *string = strtok(aux," ");
+
     if(strcmp(string,"tempo-inatividade") == 0){
         setTimeInactivity(atoi(strtok(NULL," ")));
 		write(1,"changed\n",9);
@@ -144,6 +287,10 @@ int interpreter(char *line){
 	}
 	else if(strcmp(string,"exec") == 0){
 		// funcao pipes| | |
+	}
+	else if(strcmp(string,"-e") == 0){
+		string = strtok(NULL,"\0");
+		exec_pipe(string);
 	}
 	//else if(strcmp(string,"logs") == 0) {
 	//	printalogs();
@@ -240,6 +387,7 @@ int main(int argc, char* argv[]){
 
 	while((bytes_read = read(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0){ // lê do pipe, executa
 		if((pid = fork()) == 0){ // executa, escreve no pipe
+			printf("%s\n",buf );
 			dup2(fd_sv_cl_write,1);
 			interpreter(buf);
 
