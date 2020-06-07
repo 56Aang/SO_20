@@ -123,7 +123,7 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 
 	currentTarefa = atoi(buffer); // transforma em um int
 
-	tarefas[currentTarefa]->status = 3;
+	tarefas[currentTarefa]->status = 4;
 
 	
 
@@ -153,7 +153,7 @@ void sigExecutionAlarmHandler(int signum){ // handler do filho que recebe o sina
 
 	int i = 0;
 	while(pidsfilhos[tar][i]){
-		kill(SIGKILL,pidsfilhos[tar][i++]);
+		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
 	close(fd_fifo);
