@@ -53,7 +53,6 @@ void signIntHandler(int signum){
 int isdigitSTR(char *buffer){
 	for(int i = 0; buffer[i]; i++){
 		if(!isdigit(buffer[i]) && buffer[i] != '\0') {
-			printf("%c\n",buffer[i] );
 			return 0;
 		}
 	}
@@ -65,8 +64,6 @@ void sigusr1SignalHandler(int signum){
 	int res=0;
 
 	char buffer[MAX_LINE_SIZE];
-	char buffer2[MAX_LINE_SIZE];
-
 
 	//if (mkfifo(fifo_name,0666) == -1){
 	//	perror("mkfifo from child");
@@ -105,7 +102,34 @@ void sigusr1SignalHandler(int signum){
 
 	close(fd_fifo);
 
-	tar++;
+}
+void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de comunicação com filho, para que ele passe a tarefa
+	int currentTarefa;
+	int fd_fifo;
+	int res;
+	char buffer[MAX_LINE_SIZE];
+	int status;
+	if (mkfifo("pipe_task_executionTime",0666) == -1){ // cria fifo com pipe_task(tarefa)
+		perror("mkfifo from parent");
+	}
+
+	if((fd_fifo = open("pipe_task_executionTime",O_RDONLY)) == -1){ // abre extremo de leitura
+		perror("open-3");
+	}
+	
+	res = read(fd_fifo,buffer,MAX_LINE_SIZE); // lê número da tarefa
+	
+	buffer[res] = '\0';
+
+	currentTarefa = atoi(buffer); // transforma em um int
+
+	tarefas[currentTarefa]->status = 3;
+
+	
+
+	waitpid(tarefas[currentTarefa]->pidT, &status, 0);
+
+	close(fd_fifo);
 }
 
 void init_tarefa(){
@@ -116,6 +140,42 @@ void init_tarefa(){
 	}
 }
 
+void sigExecutionAlarmHandler(int signum){ // handler do filho que recebe o sinal a informar que tarefa ultrapassou o tempo permitido
+	kill(getppid(),SIGUSR2); // avisa o pai que vai comunicar via fifo - pipe_task_executionTime
+	int fd_fifo;
+	int res;
+	char buf[MAX_LINE_SIZE];
+	while((fd_fifo = open("pipe_task_executionTime",O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
+
+	res = sprintf(buf,"%d",tar); // buf <- tarefa em questão
+
+	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
+
+	int i = 0;
+	while(pidsfilhos[tar][i]){
+		kill(SIGKILL,pidsfilhos[tar][i++]);
+	}
+
+	close(fd_fifo);
+
+	_exit(0);
+}
+
+void tarefaTerminada(){
+	int fd_fifo;
+	int res;
+
+	char buf[MAX_LINE_SIZE];
+
+	while((fd_fifo = open("pipe_task_done",O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
+
+	res = sprintf(buf,"%d",getpid()); // buf <- pid
+
+	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
+
+	close(fd_fifo);
+
+}
 
 
 
@@ -132,22 +192,6 @@ void printaAjuda(){
 	write(1,"argus$ :\n       ajuda\n       tempo-inatividade $(segs)\n       tempo-execucao $(segs)\n       executar p1 | p2 ... | pn\nargus$ $(args) :\n       -h\n       -i $(segs)\n       -m $(segs)\n       -e 'p1 | p2 ... | pn'\n",210);
 }
 
-void tarefaTerminada(){
-	int fd_fifo;
-	int res;
-
-	char buf[MAX_LINE_SIZE];
-
-
-	while((fd_fifo = open("pipe_task_done",O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
-
-	res = sprintf(buf,"%d",getpid()); // buf <- pid
-
-	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
-
-	close(fd_fifo);
-
-}
 
 void tarefaEmExecucao(char *buffer){
 
@@ -175,11 +219,10 @@ int exec_command(char* command)
     return exec_ret;
 }
 
-void execution_timeHandler(int signum){
-
-}
 
 int exec_pipe(char *buffer){
+
+	signal(SIGALRM,sigExecutionAlarmHandler);
 
 	//tarefaEmExecucao(buffer);
 
@@ -189,7 +232,7 @@ int exec_pipe(char *buffer){
         if (buffer[i] == '|')
             n++;
     }
-    printf("%d\n", tar);
+
 	pidsfilhos[tar] = calloc(n,sizeof(int)); // não dá para fazer assim
 
     // parse do buffer para comandos
@@ -228,7 +271,6 @@ int exec_pipe(char *buffer){
                     perror("Fork não foi efetuado");
                     return -1;
                 case 0:
-
                     // codigo do filho 0
 
                     close(p[i][0]);
@@ -280,7 +322,6 @@ int exec_pipe(char *buffer){
                     close(p[i][1]);
 
                     close(p[i][0]);
-
                     exec_command(commands[i]);
 
                     _exit(0);
@@ -292,7 +333,10 @@ int exec_pipe(char *buffer){
         }
 
     }
-
+    // depois de criar os filhos, alarm
+    if(time_execution == -1);
+    else alarm(time_execution);
+    
     for (int i = 0; i < n; i++)
     {
         wait(&status[i]);
@@ -310,9 +354,26 @@ int exec_pipe(char *buffer){
 }
 
 
+void printaHistorico(){
+	char *aux = "";
+	char aux2[MAX_LINE_SIZE];
+	char *string = calloc(tar*MAX_LINE_SIZE,sizeof(char));
+	for(int i = 0; i < tar ; i++){
+		if(tarefas[i]->status == 2) aux = "concluída";
+		else if(tarefas[i]->status == 3) aux = "max inatividade";
+		else if(tarefas[i]->status == 4) aux = "max execução";
+		sprintf(aux2,"#%d, %s: %s\n", i+1,aux,tarefas[i]->tarefa);
+		strcat(string,aux2);
+	}
+		printf("%s", string);
+}
+
 
 
 int interpreter(char *line){
+	
+	signal(SIGUSR2,execution_timeHandler);
+	
 	int r = 1;
 	char *aux = malloc(strlen(line) * sizeof(char));
 	strcpy(aux,line);
@@ -321,11 +382,9 @@ int interpreter(char *line){
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
         setTimeInactivity(atoi(strtok(NULL," ")));
-		printf("%d\n",time_inactivity );
     }
     else if(strcmp(string,"tempo-execucao") == 0 || strcmp(string,"-m") == 0){
         setTimeExecution(atoi(strtok(NULL," ")));
-    	printf("%d\n",time_execution );
 	}
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
 		string = strtok(NULL,"\0");
@@ -334,6 +393,7 @@ int interpreter(char *line){
 
 			
 			dup2(fd_sv_cl_write,1);
+			close(fd_sv_cl_write);
 			
 
 //******************TESTE*******************
@@ -356,7 +416,7 @@ int interpreter(char *line){
 				tarefas[tar]->pidT = pid;
 				tarefas[tar]->status = 1;
 				tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
-				strcpy(tarefas[tar]->tarefa,string);
+				strcpy(tarefas[tar++]->tarefa,string);
 			}
 			else { // realloc do array
 
@@ -372,10 +432,13 @@ int interpreter(char *line){
 	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
 	
 	}
-	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
-	
-	}
 	*/
+	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
+		int save = dup(1);
+		dup2(fd_sv_cl_write,1);
+		printaHistorico();
+		dup2(save,1);
+	}
 	else if(strcmp(string,"ajuda") == 0 || strcmp(string,"-h") == 0){
 		printaAjuda();
 	}
