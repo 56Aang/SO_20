@@ -3,6 +3,7 @@
 int time_inactivity = -1; // -1 -> infinito
 int time_execution = -1;  // -1 -> infinito
 
+int fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
 
 //int fd_historico; // file descriptor historico
 
@@ -38,11 +39,25 @@ void signIntHandler(int signum){
 		_exit(0);
 	}
 	wait(0L);
+	for(int i = 0; i<20;i++){
+		printf("%d\n",tarefas[i]->pidT );
+	}
 	_exit(0);
 }
+
+int isdigitSTR(char *buffer){
+	for(int i = 0; buffer[i]; i++){
+		if(!isdigit(buffer[i]) && buffer[i] != '\0') {
+			printf("%c\n",buffer[i] );
+			return 0;
+		}
+	}
+	return 1;
+}
+
 void sigusr1SignalHandler(int signum){
 	int fd_fifo;
-	int res;
+	int res=0,res1 = 0;
 	char string[11] = "pipe_task";
 	char nr[3];
 	char buffer[MAX_LINE_SIZE];
@@ -62,17 +77,45 @@ void sigusr1SignalHandler(int signum){
 		perror("open-2");
 	}
 
-	res = read(fd_fifo,buffer,MAX_LINE_SIZE);
+	while((res = read(fd_fifo,buffer+res1,MAX_LINE_SIZE))>0){
+		//buffer[res1+res] = '\0';
 	
-	tarefas[tar]->pidT = atoi(buffer);
+	
+		if(isdigitSTR(buffer+res1)){ // se for um número -> é o pid de alguma tarefa
+			int i = 0;
+			int pid = atoi(buffer+res1);
+			while(tarefas[i] && tarefas[i]->pidT != pid) i++;
+			if(!tarefas[i] && tar < i) { // não existe pid
+				printf("okkkk: %d\n",tarefas[tar]->pidT);
+				tarefas[tar]->pidT = pid;
+			}
+			else if (tarefas[i]->pidT == pid){ // já existe tarefa em execucao
+				printf("ahh???\n");
+			}
+			else { // realloc do array
+				printf("entrou aqui e não é suposto\n");
+				tar = i; 
+				tarefas[tar]->pidT = pid;
+			}
+			printf("%d\n", tarefas[tar]->pidT);
+		}
+		else {
+			//tarefas[tar]->tarefa = calloc(strlen(buffer2),sizeof(char));
+			//strcpy(tarefas[tar]->tarefa,buffer2);
+			//printf("%s\n\n", tarefas[tar]->tarefa);
+		}
 
-	printf("%d\n\n", tarefas[tar]->pidT);
 
-	res = read(fd_fifo,buffer2,MAX_LINE_SIZE);
-	printf("%s\n\n", buffer2);
-	tarefas[tar]->tarefa = calloc(strlen(buffer2),sizeof(char));
-	strcpy(tarefas[tar]->tarefa,buffer2);
-	printf("%s\n\n", tarefas[tar]->tarefa);
+		res1+=res;
+
+	}
+	printf("saiu\n");
+
+	//res = read(fd_fifo,buffer2,MAX_LINE_SIZE);
+	//printf("%s\n\n", buffer2);
+	//tarefas[tar]->tarefa = calloc(strlen(buffer2),sizeof(char));
+	//strcpy(tarefas[tar]->tarefa,buffer2);
+	//printf("%s\n\n", tarefas[tar]->tarefa);
 
 
 
@@ -104,6 +147,33 @@ void printaAjuda(){
 	write(1,"argus$ :\n       ajuda\n       tempo-inatividade $(segs)\n       tempo-execucao $(segs)\n       executar p1 | p2 ... | pn\nargus$ $(args) :\n       -h\n       -i $(segs)\n       -m $(segs)\n       -e 'p1 | p2 ... | pn'\n",210);
 }
 
+void tarefaEmExecucao(char *buffer){
+
+	int fd_fifo;
+	int res;
+	char string[11] = "pipe_task";
+	char nr[3];
+	char buf[MAX_LINE_SIZE];
+	sprintf(nr,"%d",tar);
+	char *fifo_name = strcat(string,nr);
+
+
+	kill(getppid(),SIGUSR1);
+
+	while((fd_fifo = open(fifo_name,O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
+
+
+
+
+	res = sprintf(buf,"%d",getpid()); // buf <- pid
+
+	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
+
+	write(fd_fifo,buffer,strlen(buffer)); // filho comunica ao pai a sua tarefa
+
+	close(fd_fifo);
+
+}
 
 int exec_command(char* command)
 {
@@ -129,29 +199,7 @@ int exec_command(char* command)
 
 int exec_pipe(char *buffer){
 
-
-	int fd_fifo;
-	int res;
-	char string[11] = "pipe_task";
-	char nr[3];
-	char buf[MAX_LINE_SIZE];
-	sprintf(nr,"%d",tar);
-	char *fifo_name = strcat(string,nr);
-
-
-	kill(getppid(),SIGUSR1);
-
-	while((fd_fifo = open(fifo_name,O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
-
-
-
-
-	res= sprintf(buf,"%d",getpid()); // buf <- pid
-	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
-
-	write(fd_fifo,buffer,strlen(buffer));
-
-	close(fd_fifo);
+	//tarefaEmExecucao(buffer);
 
 // contar número de comandos passados à função
 	int n = 1;                                  // -> número de comandos
@@ -281,6 +329,7 @@ int interpreter(char *line){
 	char *aux = malloc(strlen(line) * sizeof(char));
 	strcpy(aux,line);
     char *string = strtok(aux," ");
+    int pid;
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
         setTimeInactivity(atoi(strtok(NULL," ")));
@@ -292,14 +341,34 @@ int interpreter(char *line){
 	}
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
 		string = strtok(NULL,"\0");
+		if((pid = fork()) == 0){
+
+			dup2(fd_sv_cl_write,1);
+			
 
 //******************TESTE*******************
 // acrescentar uma tarefa em execução
 
 //******************************************
 
+			exec_pipe(string);
+			// tarefa concluida
+			kill(getppid(),SIGUSR1);
+			_exit(0);
+		}else{ // inicialização da tarefa
+			int i = 0;
+			while(tarefas[i] && tarefas[i]->pidT != pid) i++;
+			if(!tarefas[i] && tar < i){
+				tarefas[tar]->pidT = pid;
+				tarefas[tar]->status = 1;
+				tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
+				strcpy(tarefas[tar]->tarefa,string);
+			}
+			else { // realloc do array
 
-		exec_pipe(string);
+			}
+		}
+
 	}
 	/*
 	else if(strcmp(string,"listar") == 0 || strcmp(string,"-l") == 0) {
@@ -332,7 +401,6 @@ int main(int argc, char* argv[]){
 	signal(SIGINT,signIntHandler);
 	char buf[MAX_LINE_SIZE];
 	int bytes_read;
-	int fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
 	int pid;
 //	int logfile;
 	int status;
@@ -433,12 +501,7 @@ int main(int argc, char* argv[]){
 	
 
 	while((bytes_read = read(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0){ // lê do pipe, executa
-		if((pid = fork()) == 0){ // executa, escreve no pipe
-			printf("esta: %s\n",buf );
-			dup2(fd_sv_cl_write,1);
-			interpreter(buf);
-    	    _exit(0);
-    	}
+		interpreter(buf); 	
 
     	bzero(buf, MAX_LINE_SIZE * sizeof(char));
 	}
