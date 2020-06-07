@@ -5,6 +5,9 @@ int time_execution = -1;  // -1 -> infinito
 
 int fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
 
+int **pidsfilhos;
+
+
 //int fd_historico; // file descriptor historico
 
 
@@ -35,12 +38,14 @@ char* itoa(int i, char b[]){
 
 void signIntHandler(int signum){
 	if(fork() == 0){
-		int ret = execlp("rm","rm","pipe_task0",NULL);
+		int ret = execlp("rm","rm","pipe_task_done",NULL);
 		_exit(0);
 	}
 	wait(0L);
 	for(int i = 0; i<20;i++){
-		printf("%d\n",tarefas[i]->pidT );
+		printf("pid:    %d\n",tarefas[i]->pidT );
+		printf("status: %d\n",tarefas[i]->status );
+		printf("tarefa: %s\n",tarefas[i]->tarefa);
 	}
 	_exit(0);
 }
@@ -57,66 +62,45 @@ int isdigitSTR(char *buffer){
 
 void sigusr1SignalHandler(int signum){
 	int fd_fifo;
-	int res=0,res1 = 0;
-	char string[11] = "pipe_task";
-	char nr[3];
+	int res=0;
+
 	char buffer[MAX_LINE_SIZE];
 	char buffer2[MAX_LINE_SIZE];
-	sprintf(nr,"%d",tar);
-	char *fifo_name = strcat(string,nr);
+
+
 	//if (mkfifo(fifo_name,0666) == -1){
 	//	perror("mkfifo from child");
 	//}
 
-	if (mkfifo(fifo_name,0666) == -1){ // cria fifo com pipe_task(tarefa)
+	if (mkfifo("pipe_task_done",0666) == -1){ // cria fifo com pipe_task(tarefa)
 		perror("mkfifo from child");
 	}
 
 
-	if((fd_fifo = open(fifo_name,O_RDONLY)) == -1){ // abre extremo de leitura
+	if((fd_fifo = open("pipe_task_done",O_RDONLY)) == -1){ // abre extremo de leitura
 		perror("open-2");
 	}
 
-	while((res = read(fd_fifo,buffer+res1,MAX_LINE_SIZE))>0){
-		//buffer[res1+res] = '\0';
+	while((res = read(fd_fifo,buffer,MAX_LINE_SIZE))>0){
+		buffer[res] = '\0';
 	
 	
-		if(isdigitSTR(buffer+res1)){ // se for um número -> é o pid de alguma tarefa
+		if(isdigitSTR(buffer)){ // se for um número -> é o pid de alguma tarefa
 			int i = 0;
-			int pid = atoi(buffer+res1);
+			int pid = atoi(buffer);
 			while(tarefas[i] && tarefas[i]->pidT != pid) i++;
-			if(!tarefas[i] && tar < i) { // não existe pid
-				printf("okkkk: %d\n",tarefas[tar]->pidT);
-				tarefas[tar]->pidT = pid;
-			}
-			else if (tarefas[i]->pidT == pid){ // já existe tarefa em execucao
-				printf("ahh???\n");
+			if (tarefas[i]->pidT == pid){ // já existe tarefa em execucao
+				tarefas[i]->status = 2;
 			}
 			else { // realloc do array
 				printf("entrou aqui e não é suposto\n");
-				tar = i; 
-				tarefas[tar]->pidT = pid;
 			}
-			printf("%d\n", tarefas[tar]->pidT);
 		}
-		else {
-			//tarefas[tar]->tarefa = calloc(strlen(buffer2),sizeof(char));
-			//strcpy(tarefas[tar]->tarefa,buffer2);
-			//printf("%s\n\n", tarefas[tar]->tarefa);
+		else{
+			printf("DEBGUG\n");
 		}
-
-
-		res1+=res;
-
+		
 	}
-	printf("saiu\n");
-
-	//res = read(fd_fifo,buffer2,MAX_LINE_SIZE);
-	//printf("%s\n\n", buffer2);
-	//tarefas[tar]->tarefa = calloc(strlen(buffer2),sizeof(char));
-	//strcpy(tarefas[tar]->tarefa,buffer2);
-	//printf("%s\n\n", tarefas[tar]->tarefa);
-
 
 
 	close(fd_fifo);
@@ -126,6 +110,7 @@ void sigusr1SignalHandler(int signum){
 
 void init_tarefa(){
 	tarefas = calloc(20, sizeof(Tarefa));
+	pidsfilhos = calloc(20,sizeof(int*));
 	for(int i = 0; i<20;i++){
 		tarefas[i] = calloc(1,sizeof(struct struct_tarefa));
 	}
@@ -147,31 +132,24 @@ void printaAjuda(){
 	write(1,"argus$ :\n       ajuda\n       tempo-inatividade $(segs)\n       tempo-execucao $(segs)\n       executar p1 | p2 ... | pn\nargus$ $(args) :\n       -h\n       -i $(segs)\n       -m $(segs)\n       -e 'p1 | p2 ... | pn'\n",210);
 }
 
-void tarefaEmExecucao(char *buffer){
-
+void tarefaTerminada(){
 	int fd_fifo;
 	int res;
-	char string[11] = "pipe_task";
-	char nr[3];
+
 	char buf[MAX_LINE_SIZE];
-	sprintf(nr,"%d",tar);
-	char *fifo_name = strcat(string,nr);
 
 
-	kill(getppid(),SIGUSR1);
-
-	while((fd_fifo = open(fifo_name,O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
-
-
-
+	while((fd_fifo = open("pipe_task_done",O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
 
 	res = sprintf(buf,"%d",getpid()); // buf <- pid
 
 	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
 
-	write(fd_fifo,buffer,strlen(buffer)); // filho comunica ao pai a sua tarefa
-
 	close(fd_fifo);
+
+}
+
+void tarefaEmExecucao(char *buffer){
 
 }
 
@@ -197,16 +175,22 @@ int exec_command(char* command)
     return exec_ret;
 }
 
+void execution_timeHandler(int signum){
+
+}
+
 int exec_pipe(char *buffer){
 
 	//tarefaEmExecucao(buffer);
 
-// contar número de comandos passados à função
-	int n = 1;                                  // -> número de comandos
+	// contar número de comandos passados à função
+	int n = 1,pid;                                  // -> número de comandos
     for (int i = 0; i < strlen(buffer); i++) {
         if (buffer[i] == '|')
             n++;
     }
+    printf("%d\n", tar);
+	pidsfilhos[tar] = calloc(n,sizeof(int)); // não dá para fazer assim
 
     // parse do buffer para comandos
     char commands [n][128];                     // -> array com os comandos
@@ -239,7 +223,7 @@ int exec_pipe(char *buffer){
     for (int i = 0; i < n; i++) {
 
         if (i == 0) {
-            switch(fork()) {
+            switch(pid=fork()) {
                 case -1:
                     perror("Fork não foi efetuado");
                     return -1;
@@ -251,16 +235,17 @@ int exec_pipe(char *buffer){
 
                     dup2(p[i][1],1);
                     close(p[i][1]);
-
+                    
                     exec_command(commands[i]);
 
                     _exit(0);
                 default:
                     close(p[i][1]);
+                    pidsfilhos[tar][i] = pid;
             }
         }
         else if (i == n-1) {
-            switch(fork()) {
+            switch(pid = fork()) {
                 case -1:
                     perror("Fork não foi efetuado");
                     return -1;
@@ -270,16 +255,17 @@ int exec_pipe(char *buffer){
 
                     dup2(p[i-1][0],0);
                     close(p[i-1][0]);
-
+                    
                     exec_command(commands[i]);
 
                     _exit(0);
                 default:
                     close(p[i-1][0]);
+                    pidsfilhos[tar][i] = pid;
             }
         }
         else {
-            switch(fork()) {
+            switch(pid = fork()) {
                 case -1:
                     perror("Fork não foi efetuado");
                     return -1;
@@ -301,6 +287,7 @@ int exec_pipe(char *buffer){
                 default:
                     close(p[i-1][0]);
                     close(p[i][1]);
+                    pidsfilhos[tar][i] = pid;
             }
         }
 
@@ -311,7 +298,7 @@ int exec_pipe(char *buffer){
         wait(&status[i]);
 
         //if (WIFEXITED(status[i])) {
-        //    printf("[PAI]: filho terminou com %d\n", WEXITSTATUS(status[i]));
+        //    printf("[PAI]: filho terminou com %d, %d\n", WEXITSTATUS(status[i]),pidsfilhos[tar][i]);
         //}
     }
 
@@ -324,6 +311,7 @@ int exec_pipe(char *buffer){
 
 
 
+
 int interpreter(char *line){
 	int r = 1;
 	char *aux = malloc(strlen(line) * sizeof(char));
@@ -333,16 +321,18 @@ int interpreter(char *line){
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
         setTimeInactivity(atoi(strtok(NULL," ")));
-		write(1,"changed\n",9); // debug only
+		printf("%d\n",time_inactivity );
     }
     else if(strcmp(string,"tempo-execucao") == 0 || strcmp(string,"-m") == 0){
         setTimeExecution(atoi(strtok(NULL," ")));
-    	write(1,"changed\n",9); // debug only
+    	printf("%d\n",time_execution );
 	}
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
 		string = strtok(NULL,"\0");
 		if((pid = fork()) == 0){
+			
 
+			
 			dup2(fd_sv_cl_write,1);
 			
 
@@ -352,8 +342,12 @@ int interpreter(char *line){
 //******************************************
 
 			exec_pipe(string);
+
 			// tarefa concluida
 			kill(getppid(),SIGUSR1);
+
+			tarefaTerminada();
+
 			_exit(0);
 		}else{ // inicialização da tarefa
 			int i = 0;
@@ -497,12 +491,11 @@ int main(int argc, char* argv[]){
 
 
 
-
 	
 
 	while((bytes_read = read(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0){ // lê do pipe, executa
-		interpreter(buf); 	
-
+		buf[bytes_read] = '\0';
+		interpreter(buf);
     	bzero(buf, MAX_LINE_SIZE * sizeof(char));
 	}
 

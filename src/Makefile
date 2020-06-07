@@ -1,15 +1,16 @@
 ### Makefile ###
 
-CC = gcc
+CC = gcc -g
 
-all : server argus
+all : argus server
+
+argus: argus.c
+	$(CC) argus.c $(CFLAGS) -o argus
 
 server: server.c
 	$(CC) server.c $(CFLAGS) -o server
 	./server
 
-argus: argus.c
-	$(CC) argus.c $(CFLAGS) -o argus
 
 compile:
 	$(CC) server.c $(CFLAGS) -o server

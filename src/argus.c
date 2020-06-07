@@ -79,9 +79,9 @@ int main(int argc, char* argv[]){
         _exit(0);
     }
     else{ // lê do ecrã, escreve no pipe (cl -> sv)
+    
 
         if(argc > 1){ // ./prog xxx xxx xxx (linha de comandos)
-
      		char *a = createBuf(argc,argv);
          	write(fd_cl_sv_write,a,strlen(a));
         	//write(fd_cl_sv_write,"\n",2);
