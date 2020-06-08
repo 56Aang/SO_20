@@ -64,16 +64,16 @@ int main(int argc, char* argv[]){
     //    printf("[DEBUG] opened fifo cl-sv for [reading]\n");
 
     if((pid = fork()) == 0){
-        if(argc > 1){
-            res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE);
-            write(1,buf,res);
-        }
-        
-        else{
+        //if(argc > 1){
+        //    res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE);
+        //    write(1,buf,res);
+        //}
+        //
+        //else{
             while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){ // escrever tudo que vem do pipe sv->cl no terminal
                 write(1,buf,res);
             }
-        }
+        //}
         close(fd_cl_sv_write);
     	close(fd_sv_cl_read);
         _exit(0);
