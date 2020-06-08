@@ -46,7 +46,9 @@ void signIntHandler(int signum){
 		printf("pid:    %d\n",tarefas[i]->pidT );
 		printf("status: %d\n",tarefas[i]->status );
 		printf("tarefa: %s\n",tarefas[i]->tarefa);
+		free(tarefas[i]);
 	}
+	free(pidsfilhos);
 	_exit(0);
 }
 
