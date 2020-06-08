@@ -177,7 +177,28 @@ void tarefaTerminada(){
 
 }
 
+void killProcessUSR1_handler(int signum){
+	int i = 0;
+	while(pidsfilhos[tar][i]){
+		kill(pidsfilhos[tar][i++],SIGKILL);
+	}
+	_exit(0);
+}
 
+void terminaTarefa(int tarefa){
+	if(!tarefas[tarefa-1] || tarefas[tarefa-1]->status != 1) {
+		printf("Tarefa inválida\n");
+		return;
+	}
+	int pid = tarefas[tarefa-1]->pidT;
+	int status;
+	kill(pid,SIGUSR1);
+	waitpid(pid,&status,0);
+	if(WIFEXITED(status)){
+		printf("tarefa terminada - exit status %d\n", WEXITSTATUS(status));
+	}
+	tarefas[tarefa-1]->status = 5;
+}
 
 void setTimeInactivity(int t){
     time_inactivity = t;
@@ -189,7 +210,7 @@ void setTimeExecution(int t){
 
 
 void printaAjuda(){
-	write(1,"argus$ :\n       ajuda\n       tempo-inatividade $(segs)\n       tempo-execucao $(segs)\n       executar p1 | p2 ... | pn\nargus$ $(args) :\n       -h\n       -i $(segs)\n       -m $(segs)\n       -e 'p1 | p2 ... | pn'\n",210);
+	write(1,"argus$ :\n       ajuda\n       tempo-inatividade $(segs)\n       tempo-execucao $(segs)\n       executar p1 | p2 ... | pn\n       listar\n       historico\n       terminar $(tarefa)\nargus$ $(args) :\n       -h\n       -i $(segs)\n       -m $(segs)\n       -e 'p1 | p2 ... | pn'\n       -l\n       -r\n       -t $(tarefa)\n\0",307);
 }
 
 
@@ -223,6 +244,7 @@ int exec_command(char* command)
 int exec_pipe(char *buffer){
 
 	signal(SIGALRM,sigExecutionAlarmHandler);
+	signal(SIGUSR1,killProcessUSR1_handler);
 
 	//tarefaEmExecucao(buffer);
 
@@ -359,13 +381,29 @@ void printaHistorico(){
 	char aux2[MAX_LINE_SIZE];
 	char *string = calloc(tar*MAX_LINE_SIZE,sizeof(char));
 	for(int i = 0; i < tar ; i++){
-		if(tarefas[i]->status == 2) aux = "concluída";
-		else if(tarefas[i]->status == 3) aux = "max inatividade";
-		else if(tarefas[i]->status == 4) aux = "max execução";
-		sprintf(aux2,"#%d, %s: %s\n", i+1,aux,tarefas[i]->tarefa);
-		strcat(string,aux2);
+		if(tarefas[i]->status == 1);
+		else{
+			if(tarefas[i]->status == 2) aux = "concluída";
+			else if(tarefas[i]->status == 3) aux = "max inatividade";
+			else if(tarefas[i]->status == 4) aux = "max execução";
+			else if(tarefas[i]->status == 5) aux = "killed";
+			sprintf(aux2,"#%d, %s: %s\n", i+1,aux,tarefas[i]->tarefa);
+			strcat(string,aux2);
+		}
 	}
-		printf("%s", string);
+	printf("%s", string);
+}
+
+void printaTarefasEmExecucao(){
+	char aux[MAX_LINE_SIZE];
+	char *string = calloc(tar*MAX_LINE_SIZE,sizeof(char));
+	for(int i = 0; i < tar ; i++){
+		if(tarefas[i]->status == 1) {
+			sprintf(aux,"#%d : %s\n", i+1,tarefas[i]->tarefa);
+			strcat(string,aux);
+		}
+	}
+	printf("%s", string);
 }
 
 
@@ -424,15 +462,18 @@ int interpreter(char *line){
 		}
 
 	}
-	/*
-	else if(strcmp(string,"listar") == 0 || strcmp(string,"-l") == 0) {
-		printalogs();
-		r = 0; // não insere no logs.txt
-	}
-	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
 	
+	else if(strcmp(string,"listar") == 0 || strcmp(string,"-l") == 0) {
+		int save = dup(1);
+		dup2(fd_sv_cl_write,1);
+		printaTarefasEmExecucao();
+		dup2(save,1);
 	}
-	*/
+	
+	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
+		//printf("%d\n",atoi(strtok(NULL,"\0"))); 	// [DEBUG]
+		terminaTarefa(atoi(strtok(NULL,"\0")));
+	}
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
 		int save = dup(1);
 		dup2(fd_sv_cl_write,1);
@@ -440,7 +481,10 @@ int interpreter(char *line){
 		dup2(save,1);
 	}
 	else if(strcmp(string,"ajuda") == 0 || strcmp(string,"-h") == 0){
+		int save = dup(1);
+		dup2(fd_sv_cl_write,1);
 		printaAjuda();
+		dup2(save,1);
 	}
     else r = 0;
 

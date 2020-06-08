@@ -13,5 +13,5 @@ typedef struct struct_tarefa{
 	//pid_t *pid;
 	char *tarefa;
 	pid_t pidT;
-	int status; // 0 - not used, 1 - em execução, 2 - concluida , 3 - max inatividade , 4 - max execução
+	int status; // 0 - not used, 1 - em execução, 2 - concluida , 3 - max inatividade , 4 - max execução, 5 - killed
 }*Tarefa;
