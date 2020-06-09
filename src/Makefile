@@ -5,22 +5,22 @@ CC = gcc -g
 all : argus server
 
 argus: argus.c
-	$(CC) argus.c $(CFLAGS) -o argus
+	$(CC) argus.c functions.c $(CFLAGS) -o argus
 
 server: server.c
-	$(CC) server.c $(CFLAGS) -o server
+	$(CC) server.c functions.c $(CFLAGS) -o server
 	./server
 
 
 compile:
-	$(CC) server.c $(CFLAGS) -o server
-	$(CC) argus.c $(CFLAGS) -o argus
+	$(CC) server.c functions.c $(CFLAGS) -o server
+	$(CC) argus.c functions.c $(CFLAGS) -o argus
 	./server
 
 .PHONY: run
 run:
-	$(CC) server.c $(CFLAGS) -o server
-	$(CC) argus.c $(CFLAGS) -o argus
+	$(CC) server.c functions.c $(CFLAGS) -o server
+	$(CC) argus.c functions.c $(CFLAGS) -o argus
 	./server
 
 

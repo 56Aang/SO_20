@@ -6,7 +6,8 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <ctype.h> // isdigit()
+
+#include "functions.h"
 
 #define MAX_LINE_SIZE 128
 typedef struct struct_tarefa{

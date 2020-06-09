@@ -1,2 +1,5 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h> // isdigit()
 
-int readlinha(int fd, char * buffer, int nbyte);
+int isdigitSTR(char *buffer);

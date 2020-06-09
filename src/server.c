@@ -52,14 +52,7 @@ void signIntHandler(int signum){
 	_exit(0);
 }
 
-int isdigitSTR(char *buffer){
-	for(int i = 0; buffer[i]; i++){
-		if(!isdigit(buffer[i]) && buffer[i] != '\0') {
-			return 0;
-		}
-	}
-	return 1;
-}
+
 
 void sigusr1SignalHandler(int signum){
 	int fd_fifo;
@@ -189,7 +182,7 @@ void killProcessUSR1_handler(int signum){
 
 void terminaTarefa(int tarefa){
 	if(!tarefas[tarefa-1] || tarefas[tarefa-1]->status != 1) {
-		printf("Tarefa inválida\n");
+		write(fd_sv_cl_write,"Tarefa inválida\n",strlen("Tarefa inválida\n"));
 		return;
 	}
 	int pid = tarefas[tarefa-1]->pidT;
@@ -216,9 +209,6 @@ void printaAjuda(){
 }
 
 
-void tarefaEmExecucao(char *buffer){
-
-}
 
 int exec_command(char* command)
 {
@@ -505,9 +495,7 @@ int main(int argc, char* argv[]){
 	char buf[MAX_LINE_SIZE];
 	int bytes_read;
 	int pid;
-//	int logfile;
 	int status;
-//	int fd_logs[2];
 
 	if((pid = fork()) == 0){ // cria 2 fifos
 		execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
@@ -516,35 +504,6 @@ int main(int argc, char* argv[]){
 	else{
 		wait(&status);
 	}
-	/*
-	if(pipe(fd_logs)<0){ // cria 2 pipes
-		perror("Pipe fd_logs");
-		_exit(0);
-	}
-	
-
-
-	if((logfile = open("log.txt" , O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1){ // cria ficheiro caso não exista - caso exista - limpa
-			perror("open write log");
-			return -1;
-	}
-	
-	// pipe que recebe dados log's, e escreve no .txt
-	if((pid = fork()) == 0){
-		close(fd_logs[1]);
-		dup2(fd_logs[0],0);
-		close(fd_logs[0]);
-		dup2(logfile,1);
-		close(logfile);
-		while((bytes_read = read(0,buf,MAX_LINE_SIZE)) > 0){
-			write(1,buf,bytes_read);
-			write(1,"\n",2);
-		}
-	}
-	
-	close(fd_logs[0]);
-	*/
-
 
 	// open named pipe for reading 
 	if((fd_cl_sv_read = open("fifo-cl-sv",O_RDONLY)) == -1){
@@ -583,19 +542,7 @@ int main(int argc, char* argv[]){
 
 //**************TESTE**************************************
 
-	//if((historico = open("historico.txt" , O_CREAT | O_WRONLY | O_TRUNC, 0777)) == -1){ // cria ficheiro caso não exista - caso exista - limpa
-	//		perror("open write log");
-	//		return -1;
-	//}
-
 //*********************************************************
-
-
-
-
-
-
-
 
 
 
@@ -608,9 +555,6 @@ int main(int argc, char* argv[]){
     	bzero(buf, MAX_LINE_SIZE * sizeof(char));
 	}
 
-
-
-//	close(logfile);
 	close(fd_cl_sv_read);
 	close(fd_cl_sv);
 	close(fd_sv_cl);
