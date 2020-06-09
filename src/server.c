@@ -4,7 +4,7 @@ int time_inactivity = -1; // -1 -> infinito
 int time_execution = -1;  // -1 -> infinito
 
 int fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
-
+int tarefaMestre;
 int **pidsfilhos;
 
 
@@ -148,6 +148,7 @@ void sigExecutionAlarmHandler(int signum){ // handler do filho que recebe o sina
 
 	int i = 0;
 	while(pidsfilhos[tar][i]){
+		printf("%d\n",pidsfilhos[tar][i]);
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
@@ -193,14 +194,29 @@ void terminaTarefa(int tarefa){
 		printf("tarefa terminada - exit status %d\n", WEXITSTATUS(status));
 	}
 	tarefas[tarefa-1]->status = 5;
+
+
+	close(fd_sv_cl_write); // mandar sinal que não tem output
+	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+		perror("open");
+	}
+	
 }
 
 void setTimeInactivity(int t){
     time_inactivity = t;
+    close(fd_sv_cl_write); // mandar sinal que não tem output
+	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+		perror("open");
+	}
 }
 
 void setTimeExecution(int t){
     time_execution = t;
+    close(fd_sv_cl_write); // mandar sinal que não tem output
+	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+		perror("open");
+	}
 }
 
 
@@ -237,7 +253,7 @@ int exec_pipe(char *buffer){
 
 	signal(SIGALRM,sigExecutionAlarmHandler);
 	signal(SIGUSR1,killProcessUSR1_handler);
-
+	tarefaMestre = getpid();
 	//tarefaEmExecucao(buffer);
 
 	// contar número de comandos passados à função
@@ -286,7 +302,6 @@ int exec_pipe(char *buffer){
                     return -1;
                 case 0:
                     // codigo do filho 0
-
                     close(p[i][0]);
 
                     dup2(p[i][1],1);
@@ -383,7 +398,13 @@ void printaHistorico(){
 			strcat(string,aux2);
 		}
 	}
-	printf("%s", string);
+	write(fd_sv_cl_write,string,strlen(string)+1);
+	if(strlen(string) == 0) {
+		close(fd_sv_cl_write);
+		if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+			perror("open");
+		}
+	}
 }
 
 void printaTarefasEmExecucao(){
@@ -395,7 +416,13 @@ void printaTarefasEmExecucao(){
 			strcat(string,aux);
 		}
 	}
-	printf("%s", string);
+	write(fd_sv_cl_write,string,strlen(string)+1);
+	if(strlen(string) == 0) {
+		close(fd_sv_cl_write);
+		if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+			perror("open");
+		}
+	}
 }
 
 
@@ -456,10 +483,10 @@ int interpreter(char *line){
 	}
 	
 	else if(strcmp(string,"listar") == 0 || strcmp(string,"-l") == 0) {
-		int save = dup(1);
-		dup2(fd_sv_cl_write,1);
+		//int save = dup(1);
+		//dup2(fd_sv_cl_write,1);
 		printaTarefasEmExecucao();
-		dup2(save,1);
+		//dup2(save,1);
 	}
 	
 	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
@@ -467,10 +494,9 @@ int interpreter(char *line){
 		terminaTarefa(atoi(strtok(NULL,"\0")));
 	}
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
-		int save = dup(1);
-		dup2(fd_sv_cl_write,1);
+		//dup2(fd_sv_cl_write,1);
 		printaHistorico();
-		dup2(save,1);
+		//dup2(save,1);
 	}
 	else if(strcmp(string,"ajuda") == 0 || strcmp(string,"-h") == 0){
 		int save = dup(1);

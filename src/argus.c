@@ -10,20 +10,6 @@
 
 #define MAX_LINE_SIZE 1024
 
-/*
-int readlinha(int fd, char * buffer, int nbyte){
-	int i = 0;
-
-	while(i < nbyte-1 && read(fd, buffer + i, 1 ) > 0 && buffer[i] != '\n')
-        i++;
-    if (i >= nbyte)
-        buffer[i] = '\n';
-    else
-        buffer[i] = '\0';
-
-    return i;
-}
-*/
 
 
 char* createBuf(int argc, char* argv[]){
@@ -41,6 +27,10 @@ char* createBuf(int argc, char* argv[]){
     }
     buf[k] = '\0';
     return buf;
+}
+
+void cleanHandler(int signum){
+    _exit(0);
 }
 
 int main(int argc, char* argv[]){
@@ -64,15 +54,23 @@ int main(int argc, char* argv[]){
     //    printf("[DEBUG] opened fifo cl-sv for [reading]\n");
 
     if((pid = fork()) == 0){
+        signal(SIGALRM,cleanHandler);
         if(argc > 1){
+            alarm(30);
             res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE);
             write(1,buf,res);
         }
         
         else{
-            while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){ // escrever tudo que vem do pipe sv->cl no terminal
-                write(1,buf,res);
-            }
+            do{
+                while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){ // escrever tudo que vem do pipe sv->cl no terminal
+                    write(1,buf,res);
+                }
+                if((fd_sv_cl_read = open("fifo-sv-cl",O_RDONLY)) == -1){ // open named pipe for read (sv -> cliente)
+                    perror("open");
+                    return -1;
+                }
+            }while(1);
         }
         close(fd_cl_sv_write);
     	close(fd_sv_cl_read);
@@ -94,7 +92,7 @@ int main(int argc, char* argv[]){
             while((res = read(0,buf,MAX_LINE_SIZE)) > 0){
                 buf[res-1] = '\0';
                 write(fd_cl_sv_write,buf,res);
-            }        
+            }
             kill(pid,SIGKILL); // quando acaba, mata o processo que está a ler do pipe -> prog termina
         }
 
