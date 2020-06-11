@@ -6,6 +6,7 @@ int time_execution = -1;  // -1 -> infinito
 int fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
 int tarefaMestre;
 int **pidsfilhos;
+int sizeMax = 20;
 
 
 //int fd_historico; // file descriptor historico
@@ -41,8 +42,18 @@ void signIntHandler(int signum){
 		int ret = execlp("rm","rm","pipe_task_done",NULL);
 		_exit(0);
 	}
-	wait(0L);
-	for(int i = 0; i<20;i++){
+	if(fork() == 0){
+		int ret = execlp("rm","rm","pipe_task_executionTime",NULL);
+		_exit(0);
+	}
+	if(fork() == 0){
+		int ret = execlp("rm","rm","pipe_task_inactivityTime",NULL);
+		_exit(0);
+	}
+	for(int i = 0; i<3;i++){
+		wait(0L);
+	}
+	for(int i = 0; i<sizeMax;i++){
 		printf("pid:    %d\n",tarefas[i]->pidT );
 		printf("status: %d\n",tarefas[i]->status );
 		printf("tarefa: %s\n",tarefas[i]->tarefa);
@@ -172,10 +183,18 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 	close(fd_fifo);
 }
 
+void realloc_tarefa(){
+	tarefas = realloc(tarefas,2*sizeMax*sizeof(Tarefa));
+	for(int i = sizeMax; i<2*sizeMax;i++){
+		tarefas[i] = calloc(1,sizeof(struct struct_tarefa));
+	}
+	sizeMax = 2*sizeMax;
+}
+
 void init_tarefa(){
-	tarefas = calloc(20, sizeof(Tarefa));
-	pidsfilhos = calloc(20,sizeof(int*));
-	for(int i = 0; i<20;i++){
+	tarefas = calloc(sizeMax, sizeof(Tarefa));
+	pidsfilhos = calloc(sizeMax,sizeof(int*));
+	for(int i = 0; i<sizeMax;i++){
 		tarefas[i] = calloc(1,sizeof(struct struct_tarefa));
 	}
 }
@@ -553,15 +572,18 @@ int interpreter(char *line){
 			_exit(0);
 		}else{ // inicialização da tarefa
 			int i = 0;
-			while(tarefas[i] && tarefas[i]->pidT != pid) i++;
-			if(!tarefas[i] && tar < i){
+			if(tarefas[tar]){
 				tarefas[tar]->pidT = pid;
 				tarefas[tar]->status = 1;
 				tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
 				strcpy(tarefas[tar++]->tarefa,string);
 			}
 			else { // realloc do array
-
+				realloc_tarefa();
+				tarefas[tar]->pidT = pid;
+				tarefas[tar]->status = 1;
+				tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
+				strcpy(tarefas[tar++]->tarefa,string);
 			}
 		}
 
