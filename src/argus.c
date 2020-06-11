@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <signal.h>
+#include "include/functions.h"
+#include "include/macros.h"
 
 #define MAX_LINE_SIZE 1024
 
@@ -29,9 +31,6 @@ char* createBuf(int argc, char* argv[]){
     return buf;
 }
 
-void cleanHandler(int signum){
-    _exit(0);
-}
 
 int main(int argc, char* argv[]){
     int res;
@@ -53,12 +52,17 @@ int main(int argc, char* argv[]){
     //else
     //    printf("[DEBUG] opened fifo cl-sv for [reading]\n");
 
-    if((pid = fork()) == 0){
-        signal(SIGALRM,cleanHandler);
+    if((pid = fork()) == 0){ // [é preciso solução]
         if(argc > 1){
-            alarm(30);
-            res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE);
-            write(1,buf,res);
+            while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE))>0){
+            	if(strcmp(buf+res-6,EXIT) == 0) {
+            		write(1,buf,res-6);
+            		bzero(buf, MAX_LINE_SIZE * sizeof(char));
+            		break;
+            	}
+            	write(1,buf,res);
+            	bzero(buf, MAX_LINE_SIZE * sizeof(char));
+            }
         }
         
         else{

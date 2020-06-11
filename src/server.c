@@ -46,6 +46,8 @@ void signIntHandler(int signum){
 		printf("pid:    %d\n",tarefas[i]->pidT );
 		printf("status: %d\n",tarefas[i]->status );
 		printf("tarefa: %s\n",tarefas[i]->tarefa);
+		printf("start offset: %d\n",tarefas[i]->o_start );
+		printf("end offset: %d\n",tarefas[i]->o_size );
 		free(tarefas[i]);
 	}
 	free(pidsfilhos);
@@ -56,7 +58,10 @@ void signIntHandler(int signum){
 
 void sigusr1SignalHandler(int signum){
 	int fd_fifo;
+	int templog;
+	int fd_logs;
 	int res=0;
+	int aux = 0;
 
 	char buffer[MAX_LINE_SIZE];
 
@@ -73,31 +78,70 @@ void sigusr1SignalHandler(int signum){
 		perror("open-2");
 	}
 
-	while((res = read(fd_fifo,buffer,MAX_LINE_SIZE))>0){
-		buffer[res] = '\0';
-	
-	
-		if(isdigitSTR(buffer)){ // se for um número -> é o pid de alguma tarefa
-			int i = 0;
-			int pid = atoi(buffer);
-			while(tarefas[i] && tarefas[i]->pidT != pid) i++;
-			if (tarefas[i]->pidT == pid){ // já existe tarefa em execucao
-				tarefas[i]->status = 2;
-			}
-			else { // realloc do array
-				printf("entrou aqui e não é suposto\n");
-			}
-		}
-		else{
-			printf("DEBGUG\n");
-		}
-		
-	}
-
-
+	res = read(fd_fifo,buffer,MAX_LINE_SIZE);
+	buffer[res] = '\0';
 	close(fd_fifo);
+	int t = atoi(buffer);
+	if(tarefas[t]){
+		tarefas[t]->status = 2;
+		char *string = calloc(20,sizeof(char));
+
+		sprintf(string,"temp_out%d.txt",t+1);
+
+		if((templog = open(string,O_RDONLY)) == -1){
+			perror("open templog");
+		}
+
+		lseek(templog,0,SEEK_SET);
+		if((fd_logs = open("logs.txt",O_WRONLY | O_APPEND)) == -1){
+			perror("open logs");
+		}
+		int off = lseek(fd_logs,0,SEEK_END);
+		while((res = read(templog,buffer,MAX_LINE_SIZE))>0){
+
+			write(fd_logs,buffer,res);
+			aux+=res;
+		}
+		tarefas[t]->o_start = off;
+		tarefas[t]->o_size = aux;
+		close(fd_logs);
+		close(templog);
+		if(!fork()){
+			execlp("rm","rm",string,NULL);
+			_exit(0);
+		}
+	}
+	else { // realloc do array
+		printf("entrou aqui e não é suposto\n");
+	}
+	write(fd_sv_cl_write,EXIT,sizeOfExit);
 
 }
+void printaOutput(int tarefa){
+	if(!tarefas[tarefa] || tarefas[tarefa]->status != 2) { // caso não seja válida a tarefa
+		//write(fd_sv_cl_write,"Tarefa inválida\n",17);
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
+	}
+	else{
+		int fd_logs;
+		if((fd_logs = open("logs.txt",O_RDONLY)) == -1){
+			perror("open logs");
+		}
+		int resto = tarefas[tarefa]->o_size;
+		lseek(fd_logs,tarefas[tarefa]->o_start,SEEK_SET);
+		int res;
+		char buffer[MAX_LINE_SIZE];
+		int bufSize = MAX_LINE_SIZE;
+		bufSize = (resto < bufSize) ? resto : bufSize;
+		while((res = read(fd_logs,buffer,bufSize)) > 0){
+			write(fd_sv_cl_write,buffer,res);
+			resto-= res;
+			bufSize = (resto < bufSize) ? resto : bufSize;	
+		}
+	}
+}
+
+
 void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de comunicação com filho, para que ele passe a tarefa
 	int currentTarefa;
 	int fd_fifo;
@@ -148,7 +192,6 @@ void sigExecutionAlarmHandler(int signum){ // handler do filho que recebe o sina
 
 	int i = 0;
 	while(pidsfilhos[tar][i]){
-		printf("%d\n",pidsfilhos[tar][i]);
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
@@ -165,11 +208,12 @@ void tarefaTerminada(){
 
 	while((fd_fifo = open("pipe_task_done",O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
 
-	res = sprintf(buf,"%d",getpid()); // buf <- pid
+	res = sprintf(buf,"%d",tar); // buf <- tarefa
 
-	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
+	write(fd_fifo,buf,res); // filho comunica ao pai a sua tarefa;
 
 	close(fd_fifo);
+
 
 }
 
@@ -184,6 +228,7 @@ void killProcessUSR1_handler(int signum){
 void terminaTarefa(int tarefa){
 	if(!tarefas[tarefa-1] || tarefas[tarefa-1]->status != 1) {
 		write(fd_sv_cl_write,"Tarefa inválida\n",strlen("Tarefa inválida\n"));
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
 		return;
 	}
 	int pid = tarefas[tarefa-1]->pidT;
@@ -221,7 +266,23 @@ void setTimeExecution(int t){
 
 
 void printaAjuda(){
-	write(1,"argus$ :\n       ajuda\n       tempo-inatividade $(segs)\n       tempo-execucao $(segs)\n       executar p1 | p2 ... | pn\n       listar\n       historico\n       terminar $(tarefa)\nargus$ $(args) :\n       -h\n       -i $(segs)\n       -m $(segs)\n       -e 'p1 | p2 ... | pn'\n       -l\n       -r\n       -t $(tarefa)\n\0",307);
+	write(1,"argus$ :\n",9);
+	write(1,"	       ajuda\n",14);
+	write(1,"	       tempo-inatividade $(segs)\n",34);
+	write(1,"	       tempo-execucao $(segs)\n",31);
+	write(1,"	       executar p1 | p2 ... | pn\n",34);
+	write(1,"	       listar\n",15);
+	write(1,"	       historico\n",18);
+	write(1,"	       terminar $(tarefa)\n",27);
+	write(1,"argus$ $(args) :\n",17);
+	write(1,"	       -h",11);
+	write(1,"	       -i $(segs)\n",19);
+	write(1,"	       -m $(segs)\n",19);
+	write(1,"	       -e 'p1 | p2 ... | pn'\n",30);
+	write(1,"	       -l\n",11);
+	write(1,"	       -r\n",11);
+	write(1,"	       -t $(tarefa)\n",21);
+	write(1,EXIT,sizeOfExit);
 }
 
 
@@ -283,7 +344,8 @@ int exec_pipe(char *buffer){
 
     int p[n-1][2];                              // -> matriz com os fd's dos pipes
     int status[n];                              // -> array que guarda o return dos filhos
-
+    int p_aux[2];
+    pipe(p_aux);
     // criar os pipes conforme o número de comandos
     for (int i = 0; i < n-1; i++) {
         if (pipe(p[i]) == -1) {
@@ -304,18 +366,25 @@ int exec_pipe(char *buffer){
                     // codigo do filho 0
                     close(p[i][0]);
 
-                    dup2(p[i][1],1);
-                    close(p[i][1]);
-                    
+                    if(n>1){
+                        dup2(p[i][1],1);
+						close(p[i][1]);
+                    }
+                    else{
+                    	dup2(p_aux[1],1);
+                    	close(p_aux[1]);
+                	}
+
                     exec_command(commands[i]);
 
                     _exit(0);
                 default:
-                    close(p[i][1]);
+                	if(n>1) close(p[i][1]);
+                	else close(p_aux[1]);
                     pidsfilhos[tar][i] = pid;
             }
         }
-        else if (i == n-1) {
+        else if (i == n-1) { // pipe servidor -> cliente
             switch(pid = fork()) {
                 case -1:
                     perror("Fork não foi efetuado");
@@ -326,12 +395,16 @@ int exec_pipe(char *buffer){
 
                     dup2(p[i-1][0],0);
                     close(p[i-1][0]);
+
+                    dup2(p_aux[1],1);
+                    close(p_aux[1]);
                     
                     exec_command(commands[i]);
 
                     _exit(0);
                 default:
                     close(p[i-1][0]);
+                    close(p_aux[1]);
                     pidsfilhos[tar][i] = pid;
             }
         }
@@ -360,8 +433,8 @@ int exec_pipe(char *buffer){
                     pidsfilhos[tar][i] = pid;
             }
         }
-
     }
+
     // depois de criar os filhos, alarm
     if(time_execution == -1);
     else alarm(time_execution);
@@ -374,6 +447,17 @@ int exec_pipe(char *buffer){
         //    printf("[PAI]: filho terminou com %d, %d\n", WEXITSTATUS(status[i]),pidsfilhos[tar][i]);
         //}
     }
+    char *string = calloc(20,sizeof(char));
+    if((pid = fork()) == 0){
+    	dup2(p_aux[0],0);
+    	close(p_aux[0]);
+    	
+    	sprintf(string,"temp_out%d.txt",tar+1);
+		execlp("tee","tee",string,NULL);
+		_exit(0);
+    }
+    wait(0L);
+
 
     bzero(buffer, MAX_LINE_SIZE * sizeof(char));
     
@@ -398,13 +482,13 @@ void printaHistorico(){
 			strcat(string,aux2);
 		}
 	}
-	write(fd_sv_cl_write,string,strlen(string)+1);
-	if(strlen(string) == 0) {
-		close(fd_sv_cl_write);
-		if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-			perror("open");
-		}
-	}
+	write(fd_sv_cl_write,string,strlen(string));
+	//if(strlen(string) == 0) {
+	//	close(fd_sv_cl_write);
+	//	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+	//		perror("open");
+	//	}
+	//}
 }
 
 void printaTarefasEmExecucao(){
@@ -429,7 +513,6 @@ void printaTarefasEmExecucao(){
 
 int interpreter(char *line){
 	
-	signal(SIGUSR2,execution_timeHandler);
 	
 	int r = 1;
 	char *aux = malloc(strlen(line) * sizeof(char));
@@ -446,7 +529,6 @@ int interpreter(char *line){
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
 		string = strtok(NULL,"\0");
 		if((pid = fork()) == 0){
-			
 
 			
 			dup2(fd_sv_cl_write,1);
@@ -464,7 +546,6 @@ int interpreter(char *line){
 			kill(getppid(),SIGUSR1);
 
 			tarefaTerminada();
-
 			_exit(0);
 		}else{ // inicialização da tarefa
 			int i = 0;
@@ -496,6 +577,7 @@ int interpreter(char *line){
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
 		//dup2(fd_sv_cl_write,1);
 		printaHistorico();
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
 		//dup2(save,1);
 	}
 	else if(strcmp(string,"ajuda") == 0 || strcmp(string,"-h") == 0){
@@ -503,6 +585,9 @@ int interpreter(char *line){
 		dup2(fd_sv_cl_write,1);
 		printaAjuda();
 		dup2(save,1);
+	}
+	else if(strcmp(string,"output") == 0 || strcmp(string,"-o") == 0){
+		printaOutput(atoi(strtok(NULL,"\0"))-1);
 	}
     else r = 0;
 
@@ -518,10 +603,12 @@ int main(int argc, char* argv[]){
 	tar = 0;
 	signal(SIGUSR1,sigusr1SignalHandler);
 	signal(SIGINT,signIntHandler);
+	signal(SIGUSR2,execution_timeHandler);
 	char buf[MAX_LINE_SIZE];
 	int bytes_read;
 	int pid;
 	int status;
+	int fd_logs;
 
 	if((pid = fork()) == 0){ // cria 2 fifos
 		execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
@@ -530,7 +617,11 @@ int main(int argc, char* argv[]){
 	else{
 		wait(&status);
 	}
-
+	if((fd_logs = open("logs.txt",O_CREAT | O_TRUNC,0666)) == -1){
+		perror("open logs");
+		return -1;
+	}
+	close(fd_logs);
 	// open named pipe for reading 
 	if((fd_cl_sv_read = open("fifo-cl-sv",O_RDONLY)) == -1){
 		perror("open");

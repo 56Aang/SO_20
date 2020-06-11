@@ -363,13 +363,15 @@ int exec_pipe(char *buffer){
 						signal(SIGALRM,warnParentInactivityHandler);
                 		close(p[i][0]);
                 		close(p_inat[1]);
-
-                		if(time_inactivity > 0) 
-						{
+                		if(n>1 && time_inactivity > 0) 
+							{
 								alarm(time_inactivity);
+							}
+						else {dup2(1,p[i][1]);
+						close(1);
 						}
                     	while((res = read(p_inat[0],buf,MAX_LINE_SIZE)) > 0){
-                    		if(time_inactivity > 0) alarm(time_inactivity);
+                    		if(n>1 && time_inactivity > 0) alarm(time_inactivity);
                     		write(p[i][1],buf,res);
 
     						bzero(buf, MAX_LINE_SIZE * sizeof(char));
