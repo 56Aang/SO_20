@@ -52,11 +52,12 @@ int main(int argc, char* argv[]){
     //else
     //    printf("[DEBUG] opened fifo cl-sv for [reading]\n");
 
+    bzero(buf, MAX_LINE_SIZE * sizeof(char));
     if((pid = fork()) == 0){ // [é preciso solução]
         if(argc > 1){
             while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE))>0){
-            	if(strcmp(buf+res-6,EXIT) == 0) {
-            		write(1,buf,res-6);
+            	if(strcmp(buf+res-sizeOfExit,EXIT) == 0) {
+            		write(1,buf,res-sizeOfExit);
             		bzero(buf, MAX_LINE_SIZE * sizeof(char));
             		break;
             	}
@@ -69,6 +70,7 @@ int main(int argc, char* argv[]){
             do{
                 while((res = read(fd_sv_cl_read,buf,MAX_LINE_SIZE)) > 0){ // escrever tudo que vem do pipe sv->cl no terminal
                     write(1,buf,res);
+                    bzero(buf, MAX_LINE_SIZE * sizeof(char));
                 }
                 if((fd_sv_cl_read = open("fifo-sv-cl",O_RDONLY)) == -1){ // open named pipe for read (sv -> cliente)
                     perror("open");

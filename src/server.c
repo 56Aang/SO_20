@@ -119,8 +119,8 @@ void sigusr1SignalHandler(int signum){
 }
 void printaOutput(int tarefa){
 	if(!tarefas[tarefa] || tarefas[tarefa]->status != 2) { // caso não seja válida a tarefa
-		//write(fd_sv_cl_write,"Tarefa inválida\n",17);
-		write(fd_sv_cl_write,EXIT,sizeOfExit);
+		write(fd_sv_cl_write,"Tarefa inválida\n",17);
+		
 	}
 	else{
 		int fd_logs;
@@ -167,6 +167,7 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 	
 
 	waitpid(tarefas[currentTarefa]->pidT, &status, 0);
+	write(fd_sv_cl_write,EXIT,sizeOfExit);
 
 	close(fd_fifo);
 }
@@ -241,10 +242,10 @@ void terminaTarefa(int tarefa){
 	tarefas[tarefa-1]->status = 5;
 
 
-	close(fd_sv_cl_write); // mandar sinal que não tem output
-	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-		perror("open");
-	}
+	//close(fd_sv_cl_write); // mandar sinal que não tem output
+	//if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+	//	perror("open");
+	//}
 	
 }
 
@@ -497,16 +498,17 @@ void printaTarefasEmExecucao(){
 	for(int i = 0; i < tar ; i++){
 		if(tarefas[i]->status == 1) {
 			sprintf(aux,"#%d : %s\n", i+1,tarefas[i]->tarefa);
-			strcat(string,aux);
+			//strcat(string,aux);
+			write(fd_sv_cl_write,aux,strlen(aux));
 		}
 	}
-	write(fd_sv_cl_write,string,strlen(string)+1);
-	if(strlen(string) == 0) {
-		close(fd_sv_cl_write);
-		if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-			perror("open");
-		}
-	}
+	//write(fd_sv_cl_write,string,strlen(string));
+	//if(strlen(string) == 0) {
+	//	close(fd_sv_cl_write);
+	//	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
+	//		perror("open");
+	//	}
+	//}
 }
 
 
@@ -522,9 +524,11 @@ int interpreter(char *line){
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
         setTimeInactivity(atoi(strtok(NULL," ")));
+        write(fd_sv_cl_write,EXIT,sizeOfExit);
     }
     else if(strcmp(string,"tempo-execucao") == 0 || strcmp(string,"-m") == 0){
         setTimeExecution(atoi(strtok(NULL," ")));
+        write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
 		string = strtok(NULL,"\0");
@@ -567,12 +571,16 @@ int interpreter(char *line){
 		//int save = dup(1);
 		//dup2(fd_sv_cl_write,1);
 		printaTarefasEmExecucao();
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
 		//dup2(save,1);
 	}
 	
 	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
 		//printf("%d\n",atoi(strtok(NULL,"\0"))); 	// [DEBUG]
 		terminaTarefa(atoi(strtok(NULL,"\0")));
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
+		
 	}
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
 		//dup2(fd_sv_cl_write,1);
@@ -588,9 +596,12 @@ int interpreter(char *line){
 	}
 	else if(strcmp(string,"output") == 0 || strcmp(string,"-o") == 0){
 		printaOutput(atoi(strtok(NULL,"\0"))-1);
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
-    else r = 0;
-
+    else {
+    	r = 0;
+    	write(fd_sv_cl_write,EXIT,sizeOfExit);
+    }
 	free(aux);
 
 	return r;
