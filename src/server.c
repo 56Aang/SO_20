@@ -391,6 +391,7 @@ int exec_pipe(char *buffer){
 						close(p[i][1]);
                     }
                     else{
+                    	close(p_aux[0]);
                     	dup2(p_aux[1],1);
                     	close(p_aux[1]);
                 	}
@@ -454,6 +455,15 @@ int exec_pipe(char *buffer){
             }
         }
     }
+    char *string = calloc(20,sizeof(char));
+    if((pid = fork()) == 0){
+    	dup2(p_aux[0],0);
+    	close(p_aux[0]);
+    	sprintf(string,"temp_out%d.txt",tar+1);
+		execlp("tee","tee",string,NULL);
+		_exit(0);
+    }
+    wait(0L);
 
     // depois de criar os filhos, alarm
     if(time_execution == -1);
@@ -462,21 +472,10 @@ int exec_pipe(char *buffer){
     for (int i = 0; i < n; i++)
     {
         wait(&status[i]);
-
         //if (WIFEXITED(status[i])) {
         //    printf("[PAI]: filho terminou com %d, %d\n", WEXITSTATUS(status[i]),pidsfilhos[tar][i]);
         //}
     }
-    char *string = calloc(20,sizeof(char));
-    if((pid = fork()) == 0){
-    	dup2(p_aux[0],0);
-    	close(p_aux[0]);
-    	
-    	sprintf(string,"temp_out%d.txt",tar+1);
-		execlp("tee","tee",string,NULL);
-		_exit(0);
-    }
-    wait(0L);
 
 
     bzero(buffer, MAX_LINE_SIZE * sizeof(char));
