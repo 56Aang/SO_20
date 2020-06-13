@@ -4,50 +4,26 @@ int time_inactivity = -1; // -1 -> infinito
 int time_execution = -1;  // -1 -> infinito
 
 int fd_cl_sv, fd_cl_sv_read, fd_sv_cl, fd_sv_cl_write;
-int tarefaMestre;
 int **pidsfilhos;
 int sizeMax = 20;
 
 
-//int fd_historico; // file descriptor historico
-
-
-
 Tarefa* tarefas;
-int tar;
-/*
-char* itoa(int i, char b[]){
-	char const digit[] = "0123456789";
-	char* p = b;
-	if(i<0){
-		*p++ = '-';
-		i *= -1;
-	}
-	int shifter = i;
-	do{
-		++p;
-		shifter = shifter/10;
-	}while(shifter);
-	*p = '\0';
-	do{
-		*--p = digit[i%10];
-		i = i/10;
-	}while(i);
-	return b;
-}
-*/
+int tar; // tarefa atual
+
+
 
 void signIntHandler(int signum){
 	if(fork() == 0){
-		int ret = execlp("rm","rm","pipe_task_done",NULL);
+		execlp("rm","rm","pipe_task_done",NULL);
 		_exit(0);
 	}
 	if(fork() == 0){
-		int ret = execlp("rm","rm","pipe_task_executionTime",NULL);
+		execlp("rm","rm","pipe_task_executionTime",NULL);
 		_exit(0);
 	}
 	if(fork() == 0){
-		int ret = execlp("rm","rm","pipe_task_inactivityTime",NULL);
+		execlp("rm","rm","pipe_task_inactivityTime",NULL);
 		_exit(0);
 	}
 	for(int i = 0; i<3;i++){
@@ -129,7 +105,7 @@ void sigusr1SignalHandler(int signum){
 
 }
 void printaOutput(int tarefa){
-	if(!tarefas[tarefa] || tarefas[tarefa]->status != 2) { // caso não seja válida a tarefa
+	if(tarefa < 0 || !tarefas[tarefa] || tarefas[tarefa]->status != 2) { // caso não seja válida a tarefa
 		write(fd_sv_cl_write,"Tarefa inválida\n",17);
 		
 	}
@@ -246,7 +222,7 @@ void killProcessUSR1_handler(int signum){
 }
 
 void terminaTarefa(int tarefa){
-	if(!tarefas[tarefa-1] || tarefas[tarefa-1]->status != 1) {
+	if(tarefa <= 0 || !tarefas[tarefa-1] || tarefas[tarefa-1]->status != 1) {
 		write(fd_sv_cl_write,"Tarefa inválida\n",strlen("Tarefa inválida\n"));
 		write(fd_sv_cl_write,EXIT,sizeOfExit);
 		return;
@@ -334,7 +310,6 @@ int exec_pipe(char *buffer){
 
 	signal(SIGALRM,sigExecutionAlarmHandler);
 	signal(SIGUSR1,killProcessUSR1_handler);
-	tarefaMestre = getpid();
 	//tarefaEmExecucao(buffer);
 
 	// contar número de comandos passados à função
@@ -455,6 +430,7 @@ int exec_pipe(char *buffer){
             }
         }
     }
+
     char *string = calloc(20,sizeof(char));
     if((pid = fork()) == 0){
     	dup2(p_aux[0],0);
@@ -464,7 +440,6 @@ int exec_pipe(char *buffer){
 		_exit(0);
     }
     wait(0L);
-
     // depois de criar os filhos, alarm
     if(time_execution == -1);
     else alarm(time_execution);
@@ -476,7 +451,6 @@ int exec_pipe(char *buffer){
         //    printf("[PAI]: filho terminou com %d, %d\n", WEXITSTATUS(status[i]),pidsfilhos[tar][i]);
         //}
     }
-
 
     bzero(buffer, MAX_LINE_SIZE * sizeof(char));
     
@@ -512,7 +486,6 @@ void printaHistorico(){
 
 void printaTarefasEmExecucao(){
 	char aux[MAX_LINE_SIZE];
-	char *string = calloc(tar*MAX_LINE_SIZE,sizeof(char));
 	for(int i = 0; i < tar ; i++){
 		if(tarefas[i]->status == 1) {
 			sprintf(aux,"#%d : %s\n", i+1,tarefas[i]->tarefa);
@@ -550,39 +523,35 @@ int interpreter(char *line){
 	}
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
 		string = strtok(NULL,"\0");
-		if((pid = fork()) == 0){
-
-			
-			dup2(fd_sv_cl_write,1);
-			close(fd_sv_cl_write);
-			
-
+		
+		if(string != NULL){
+			if((pid = fork()) == 0){
+				dup2(fd_sv_cl_write,1);
+				close(fd_sv_cl_write);
 //******************TESTE*******************
 // acrescentar uma tarefa em execução
 
 //******************************************
-
-			exec_pipe(string);
-
+				exec_pipe(string);
 			// tarefa concluida
-			kill(getppid(),SIGUSR1);
-
-			tarefaTerminada();
-			_exit(0);
-		}else{ // inicialização da tarefa
-			int i = 0;
-			if(tarefas[tar]){
-				tarefas[tar]->pidT = pid;
-				tarefas[tar]->status = 1;
-				tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
-				strcpy(tarefas[tar++]->tarefa,string);
-			}
-			else { // realloc do array
-				realloc_tarefa();
-				tarefas[tar]->pidT = pid;
-				tarefas[tar]->status = 1;
-				tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
-				strcpy(tarefas[tar++]->tarefa,string);
+				kill(getppid(),SIGUSR1);
+				tarefaTerminada();
+				_exit(0);
+			
+			}else{ // inicialização da tarefa
+				if(tarefas[tar]){
+					tarefas[tar]->pidT = pid;
+					tarefas[tar]->status = 1;
+					tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
+					strcpy(tarefas[tar++]->tarefa,string);
+				}
+				else { // realloc do array
+					realloc_tarefa();
+					tarefas[tar]->pidT = pid;
+					tarefas[tar]->status = 1;
+					tarefas[tar]->tarefa = calloc(strlen(string),sizeof(char));
+					strcpy(tarefas[tar++]->tarefa,string);
+				}
 			}
 		}
 

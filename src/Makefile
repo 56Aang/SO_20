@@ -28,6 +28,10 @@ run:
 clean:
 	rm -f server
 	rm -f argus
+	rm -f pipe_task_executionTime
+	rm -f pipe_task_inactivityTime
+	rm -f fifo-sv-cl
+	rm -f fifo-cl-sv
 
 .PHONY: exit
 exit:
