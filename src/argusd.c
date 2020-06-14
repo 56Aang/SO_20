@@ -1,5 +1,4 @@
 #include "include/argus.h"
-#include "include/functions.h"
 
 typedef struct struct_tarefa{
 	char *tarefa;
