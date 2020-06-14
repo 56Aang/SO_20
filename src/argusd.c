@@ -351,6 +351,8 @@ void sigQuitInactivity(int signum){
 
 	waitpid(tarefas[currentTarefa]->pidT, &status, 0);
 
+	write(fd_sv_cl_write,EXIT,sizeOfExit);
+
 	close(fd_fifo);
 }
 
@@ -381,7 +383,7 @@ void warnParentInactivityHandler(int signum){
 
 int exec_pipe(char *buffer){
 	tarefaResp = getpid();
-	signal(SIGALRM,sigExecutionAlarmHandler);
+	signal(SIGALRM,sigExecutionAlarmHandler); // execução
 	signal(SIGUSR1,killProcessUSR1_handler);
 	signal(SIGINT,killProcessUSR2_handler); // inatividade
 	//tarefaEmExecucao(buffer);
