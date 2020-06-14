@@ -2,7 +2,6 @@
 #include "include/functions.h"
 
 typedef struct struct_tarefa{
-	//pid_t *pid;
 	char *tarefa;
 	pid_t pidT;
 	int status; // 0 - not used, 1 - em execução, 2 - concluida , 3 - max inatividade , 4 - max execução, 5 - killed
@@ -264,6 +263,13 @@ int terminaTarefa(int tarefa){
 		printf("tarefa terminada - exit status %d\n", WEXITSTATUS(status));
 	}
 	tarefas[tarefa-1]->status = 5;
+
+	char *string = calloc(20,sizeof(char));
+	if(!fork()){
+		sprintf(string,"temp_out%d.txt",tarefa);
+		execlp("rm","rm",string,NULL); // 1 - > fd_sv_cl_write
+		_exit(0);
+	}
 
 	
 	return 1;
@@ -615,10 +621,13 @@ void printaHistorico(){
 			else if(tarefas[i]->status == 4) aux = "max execução";
 			else if(tarefas[i]->status == 5) aux = "killed";
 			sprintf(aux2,"#%d, %s: %s\n", i+1,aux,tarefas[i]->tarefa);
-			strcat(string,aux2);
+			write(fd_sv_cl_write,aux2,strlen(aux2));
+			//strcat(string,aux2);
 		}
 	}
-	write(fd_sv_cl_write,string,strlen(string));
+	//write(fd_sv_cl_write,string,strlen(string));
+	
+
 	//if(strlen(string) == 0) {
 	//	close(fd_sv_cl_write);
 	//	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
