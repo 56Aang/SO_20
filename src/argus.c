@@ -13,7 +13,6 @@
 #define MAX_LINE_SIZE 1024
 
 
-
 char* createBuf(int argc, char* argv[]){
     int tam = 0;
     int i;
