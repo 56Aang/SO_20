@@ -2,37 +2,39 @@
 
 CC = gcc -g
 
-all : argus server
+all : argus server fifo
 
 argus: argus.c
-	$(CC) argus.c functions.c $(CFLAGS) -o argus
+	$(CC) argus.c $(CFLAGS) -o argus
 
-server: server.c
-	$(CC) server.c functions.c $(CFLAGS) -o server
-	./server
+server: argusd.c
+	$(CC) argusd.c functions.c $(CFLAGS) -o argusd
 
+fifo: mkfifo.c
+	$(CC) mkfifo.c $(CFLAGS) -o mkfifo
+	./mkfifo
 
 compile:
-	$(CC) server.c functions.c $(CFLAGS) -o server
+	$(CC) argusd.c functions.c $(CFLAGS) -o argusd
 	$(CC) argus.c functions.c $(CFLAGS) -o argus
-	./server
+	$(CC) mkfifo.c $(CFLAGS) -o mkfifo
 
 .PHONY: run
 run:
-	$(CC) server.c functions.c $(CFLAGS) -o server
+	$(CC) argusd.c functions.c $(CFLAGS) -o argusd
 	$(CC) argus.c functions.c $(CFLAGS) -o argus
-	./server
+	./argusd
 
 
 .PHONY: clean
 clean:
-	rm -f server
+	rm -f argusd
 	rm -f argus
-	rm -f pipe_task_executionTime
-	rm -f pipe_task_inactivityTime
+	rm -f mkfifo
+	rm -f pipe*
 	rm -f fifo-sv-cl
 	rm -f fifo-cl-sv
 
 .PHONY: exit
 exit:
-	pkill -f server
+	pkill -f argusd

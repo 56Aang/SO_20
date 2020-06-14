@@ -1,16 +1,4 @@
-#include <stdio.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/wait.h>
-#include <string.h>
-#include <stdlib.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <signal.h>
-#include "include/functions.h"
-#include "include/macros.h"
-
-#define MAX_LINE_SIZE 1024
+#include "include/argus.h"
 
 
 char* createBuf(int argc, char* argv[]){

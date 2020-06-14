@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <ctype.h> // isdigit()
 
-int isdigitSTR(char *buffer);
+#define EXIT "//exit"
+#define sizeOfExit 6
+
+#define MAX_LINE_SIZE 4096

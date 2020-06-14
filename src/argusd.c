@@ -1,4 +1,15 @@
-#include "include/server.h"
+#include "include/argus.h"
+#include "include/functions.h"
+
+typedef struct struct_tarefa{
+	//pid_t *pid;
+	char *tarefa;
+	pid_t pidT;
+	int status; // 0 - not used, 1 - em execução, 2 - concluida , 3 - max inatividade , 4 - max execução, 5 - killed
+	int o_start;
+	int o_size;
+}*Tarefa;
+
 
 int time_inactivity = -1; // -1 -> infinito
 int time_execution = -1;  // -1 -> infinito
@@ -14,6 +25,10 @@ int tarefaResp; // tarefa responsável por uma execução
 
 
 void signIntHandler(int signum){
+	close(fd_cl_sv);
+	close(fd_cl_sv_read);
+	close(fd_sv_cl_write);
+	close(fd_sv_cl);
 	if(fork() == 0){
 		execlp("rm","rm","pipe_task_done",NULL);
 		_exit(0);
@@ -26,6 +41,14 @@ void signIntHandler(int signum){
 		execlp("rm","rm","pipe_task_inactivityTime",NULL);
 		_exit(0);
 	}
+	if(fork() == 0){
+		execlp("rm","rm","fifo-cl-sv",NULL);
+		_exit(0);
+	}
+	if(fork() == 0){
+		execlp("rm","rm","fifo-sv-cl",NULL);
+		_exit(0);
+	}
 	for(int i = 0; i<3;i++){
 		wait(0L);
 	}
@@ -35,6 +58,7 @@ void signIntHandler(int signum){
 		printf("tarefa: %s\n",tarefas[i]->tarefa);
 		printf("start offset: %d\n",tarefas[i]->o_start );
 		printf("end offset: %d\n",tarefas[i]->o_size );
+		if(tarefas[i]->tarefa) free(tarefas[i]->tarefa);
 		free(tarefas[i]);
 	}
 	free(pidsfilhos);
@@ -55,10 +79,9 @@ void sigusr1SignalHandler(int signum){
 	//if (mkfifo(fifo_name,0666) == -1){
 	//	perror("mkfifo from child");
 	//}
-
-	if (mkfifo("pipe_task_done",0666) == -1){ // cria fifo com pipe_task(tarefa)
-		perror("mkfifo from child");
-	}
+	//if (mkfifo("pipe_task_done",0666) == -1){ // cria fifo com pipe_task(tarefa)
+	//	perror("mkfifo from child");
+	//}
 
 
 	if((fd_fifo = open("pipe_task_done",O_RDONLY)) == -1){ // abre extremo de leitura
@@ -135,9 +158,9 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 	int res;
 	char buffer[MAX_LINE_SIZE];
 	int status;
-	if (mkfifo("pipe_task_executionTime",0666) == -1){ // cria fifo com pipe_task(tarefa)
-		perror("mkfifo from parent");
-	}
+	//if (mkfifo("pipe_task_executionTime",0666) == -1){ // cria fifo com pipe_task(tarefa)
+	//	perror("mkfifo from parent");
+	//}
 
 	if((fd_fifo = open("pipe_task_executionTime",O_RDONLY)) == -1){ // abre extremo de leitura
 		perror("open-3");
@@ -221,11 +244,10 @@ void killProcessUSR1_handler(int signum){
 	_exit(0);
 }
 
-void terminaTarefa(int tarefa){
+int terminaTarefa(int tarefa){
 	if(tarefa <= 0 || !tarefas[tarefa-1] || tarefas[tarefa-1]->status != 1) {
 		write(fd_sv_cl_write,"Tarefa inválida\n",strlen("Tarefa inválida\n"));
-		write(fd_sv_cl_write,EXIT,sizeOfExit);
-		return;
+		return 0;
 	}
 	int pid = tarefas[tarefa-1]->pidT;
 	int status;
@@ -235,6 +257,7 @@ void terminaTarefa(int tarefa){
 		printf("tarefa terminada - exit status %d\n", WEXITSTATUS(status));
 	}
 	tarefas[tarefa-1]->status = 5;
+	return 1;
 
 
 	//close(fd_sv_cl_write); // mandar sinal que não tem output
@@ -311,9 +334,6 @@ void sigQuitInactivity(int signum){
 	int res;
 	char buffer[MAX_LINE_SIZE];
 	int status;
-	if (mkfifo("pipe_task_inactivityTime",0666) == -1){ // cria fifo com pipe_task(tarefa)
-		perror("mkfifo from parent");
-	}
 
 	if((fd_fifo = open("pipe_task_inactivityTime",O_RDONLY)) == -1){ // abre extremo de leitura
 		perror("open-3");
@@ -632,7 +652,7 @@ int interpreter(char *line){
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
         char *a = strtok(NULL," ");
-        if(a) {
+        if(a && isdigitSTR(a)) {
         	setTimeInactivity(atoi(a));
         	printf("changed to %d\n", atoi(a));
         }
@@ -640,7 +660,7 @@ int interpreter(char *line){
     }
     else if(strcmp(string,"tempo-execucao") == 0 || strcmp(string,"-m") == 0){
         char *a = strtok(NULL," ");
-        if(a) {
+        if(a && isdigitSTR(a)) {
         	setTimeExecution(atoi(a));
         	printf("changed to %d\n", atoi(a));
         }
@@ -679,6 +699,9 @@ int interpreter(char *line){
 				}
 			}
 		}
+		else{
+			write(fd_sv_cl_write,EXIT,sizeOfExit);
+		}
 
 	}
 	
@@ -692,10 +715,13 @@ int interpreter(char *line){
 	
 	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
 		//printf("%d\n",atoi(strtok(NULL,"\0"))); 	// [DEBUG]
-		terminaTarefa(atoi(strtok(NULL,"\0")));
-		write(fd_sv_cl_write,EXIT,sizeOfExit);
-		write(fd_sv_cl_write,EXIT,sizeOfExit);
+		char *a = strtok(NULL,"\0");
+		if(a && isdigitSTR(a)){
+			if(terminaTarefa(atoi(a)))
+				write(fd_sv_cl_write,EXIT,sizeOfExit);
+		}
 		
+		write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
 		//dup2(fd_sv_cl_write,1);
@@ -710,7 +736,10 @@ int interpreter(char *line){
 		dup2(save,1);
 	}
 	else if(strcmp(string,"output") == 0 || strcmp(string,"-o") == 0){
-		printaOutput(atoi(strtok(NULL,"\0"))-1);
+		char *a = strtok(NULL,"\0");
+		if(a && isdigitSTR(a)){
+			printaOutput(atoi(a)-1);
+		}
 		write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
     else {
@@ -737,13 +766,13 @@ int main(int argc, char* argv[]){
 	int status;
 	int fd_logs;
 
-	if((pid = fork()) == 0){ // cria 2 fifos
-		execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
-		_exit(1);
-	}
-	else{
-		wait(&status);
-	}
+	//if((pid = fork()) == 0){ // cria 2 fifos
+	//	execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
+	//	_exit(1);
+	//}
+	//else{
+	//	wait(&status);
+	//}
 	if((fd_logs = open("logs.txt",O_CREAT | O_TRUNC,0666)) == -1){
 		perror("open logs");
 		return -1;
