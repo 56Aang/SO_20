@@ -10,7 +10,7 @@ int sizeMax = 20;
 
 Tarefa* tarefas;
 int tar; // tarefa atual
-
+int tarefaResp; // tarefa responsável por uma execução
 
 
 void signIntHandler(int signum){
@@ -305,11 +305,65 @@ int exec_command(char* command)
     return exec_ret;
 }
 
+void sigQuitInactivity(int signum){
+	int currentTarefa;
+	int fd_fifo;
+	int res;
+	char buffer[MAX_LINE_SIZE];
+	int status;
+	if (mkfifo("pipe_task_inactivityTime",0666) == -1){ // cria fifo com pipe_task(tarefa)
+		perror("mkfifo from parent");
+	}
+
+	if((fd_fifo = open("pipe_task_inactivityTime",O_RDONLY)) == -1){ // abre extremo de leitura
+		perror("open-3");
+	}
+	
+	res = read(fd_fifo,buffer,MAX_LINE_SIZE); // lê número da tarefa
+	
+	buffer[res] = '\0';
+
+	currentTarefa = atoi(buffer); // transforma em um int
+
+	tarefas[currentTarefa]->status = 3;
+
+	
+
+	waitpid(tarefas[currentTarefa]->pidT, &status, 0);
+
+	close(fd_fifo);
+}
+
+void killProcessUSR2_handler(int signum){ // comunica com pai a dizer que tarefa vai terminar por tempo de inatividade excedido
+	kill(getppid(),SIGQUIT);
+	int fd_fifo;
+	int res;
+	char buf[MAX_LINE_SIZE];
+	while((fd_fifo = open("pipe_task_inactivityTime",O_WRONLY)) == -1); // enquanto o pai não criar o fifo, o filho espera
+
+	res = sprintf(buf,"%d",tar); // buf <- tarefa em questão
+
+	write(fd_fifo,buf,res); // filho comunica ao pai a sua tarefa;
+
+	int i = 0;
+	while(pidsfilhos[tar][i]){
+		kill(pidsfilhos[tar][i++],SIGKILL);
+	}
+
+	close(fd_fifo);
+
+	_exit(0);
+}
+
+void warnParentInactivityHandler(int signum){
+	kill(tarefaResp,SIGINT); // responsável 
+}
 
 int exec_pipe(char *buffer){
-
+	tarefaResp = getpid();
 	signal(SIGALRM,sigExecutionAlarmHandler);
 	signal(SIGUSR1,killProcessUSR1_handler);
+	signal(SIGINT,killProcessUSR2_handler); // inatividade
 	//tarefaEmExecucao(buffer);
 
 	// contar número de comandos passados à função
@@ -339,8 +393,11 @@ int exec_pipe(char *buffer){
 
     int p[n-1][2];                              // -> matriz com os fd's dos pipes
     int status[n];                              // -> array que guarda o return dos filhos
+    int p_inat[2];
     int p_aux[2];
     pipe(p_aux);
+    char buf[MAX_LINE_SIZE];
+    int res;
     // criar os pipes conforme o número de comandos
     for (int i = 0; i < n-1; i++) {
         if (pipe(p[i]) == -1) {
@@ -360,10 +417,40 @@ int exec_pipe(char *buffer){
                 case 0:
                     // codigo do filho 0
                     close(p[i][0]);
-
                     if(n>1){
-                        dup2(p[i][1],1);
-						close(p[i][1]);
+                    	if(time_inactivity > 0){
+                    		if(pipe(p_inat) == -1){
+                	    		perror("Pipe não foi criado");
+                	    		return -1;
+							}
+							if(!fork()){ //
+								signal(SIGALRM,warnParentInactivityHandler);
+								close(p_inat[1]);
+								alarm(time_inactivity);
+							
+								while((res = read(p_inat[0],buf,MAX_LINE_SIZE)) > 0){ // enquanto conseguir ler da pipe, dá alarm, e escreve
+                    				alarm(time_inactivity);
+                    				write(p[i][1],buf,res);
+    								bzero(buf, MAX_LINE_SIZE * sizeof(char));
+                    			}
+                    			close(p[i][1]);
+                    			_exit(0);
+							}
+							else{ // executar para a pipe_inat
+								close(p_inat[0]);
+								dup2(p_inat[1],1);
+								close(p_inat[1]);
+
+								exec_command(commands[i]);
+								_exit(0);
+							}
+
+                    	}
+
+                    	else{
+                        	dup2(p[i][1],1);
+							close(p[i][1]);
+						}
                     }
                     else{
                     	close(p_aux[0]);
@@ -410,17 +497,47 @@ int exec_pipe(char *buffer){
                     perror("Fork não foi efetuado");
                     return -1;
                 case 0:
-
                     // codigo do filho i
+                	if(time_inactivity > 0){
+                		if(pipe(p_inat) == -1){
+                	    	perror("Pipe não foi criado");
+                	    	return -1;
+						}
+                		if(!fork()){
+                			signal(SIGALRM,warnParentInactivityHandler);
+                			close(p[i][0]);
+                			close(p_inat[1]);
+                			alarm(time_inactivity);
+                			while((res = read(p_inat[0],buf,MAX_LINE_SIZE)) > 0){
+                   				alarm(time_inactivity);
+                    			write(p[i][1],buf,res);
+    							bzero(buf, MAX_LINE_SIZE * sizeof(char));
+                    		}
+                    		close(p[i][1]);
+                		}
+                		else{
+                			dup2(p[i-1][0],0);
+                    		close(p[i-1][0]);
 
-                    dup2(p[i-1][0],0);
-                    close(p[i-1][0]);
+                    		dup2(p_inat[1],1);
+                   			close(p_inat[1]);
+                   			close(p_inat[0]);
+                    		exec_command(commands[i]);
+                		}
+                		_exit(0);
+                	}
 
-                    dup2(p[i][1],1);
-                    close(p[i][1]);
+                	else{
 
-                    close(p[i][0]);
-                    exec_command(commands[i]);
+                    	dup2(p[i-1][0],0);
+                    	close(p[i-1][0]);
+
+                    	dup2(p[i][1],1);
+                    	close(p[i][1]);
+
+                    	close(p[i][0]);
+                    	exec_command(commands[i]);
+                	}
 
                     _exit(0);
                 default:
@@ -430,6 +547,8 @@ int exec_pipe(char *buffer){
             }
         }
     }
+    if(time_execution == -1);
+    else alarm(time_execution);
 
     char *string = calloc(20,sizeof(char));
     if((pid = fork()) == 0){
@@ -441,8 +560,6 @@ int exec_pipe(char *buffer){
     }
     wait(0L);
     // depois de criar os filhos, alarm
-    if(time_execution == -1);
-    else alarm(time_execution);
     
     for (int i = 0; i < n; i++)
     {
@@ -514,11 +631,19 @@ int interpreter(char *line){
     int pid;
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
-        setTimeInactivity(atoi(strtok(NULL," ")));
+        char *a = strtok(NULL," ");
+        if(a) {
+        	setTimeInactivity(atoi(a));
+        	printf("changed to %d\n", atoi(a));
+        }
         write(fd_sv_cl_write,EXIT,sizeOfExit);
     }
     else if(strcmp(string,"tempo-execucao") == 0 || strcmp(string,"-m") == 0){
-        setTimeExecution(atoi(strtok(NULL," ")));
+        char *a = strtok(NULL," ");
+        if(a) {
+        	setTimeExecution(atoi(a));
+        	printf("changed to %d\n", atoi(a));
+        }
         write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
 	else if(strcmp(string,"-e") == 0 || strcmp(string,"exec") == 0){
@@ -605,6 +730,7 @@ int main(int argc, char* argv[]){
 	signal(SIGUSR1,sigusr1SignalHandler);
 	signal(SIGINT,signIntHandler);
 	signal(SIGUSR2,execution_timeHandler);
+	signal(SIGQUIT,sigQuitInactivity);
 	char buf[MAX_LINE_SIZE];
 	int bytes_read;
 	int pid;
