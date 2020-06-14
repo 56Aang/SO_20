@@ -80,6 +80,7 @@ int main(int argc, char* argv[]){
 
         if(argc > 1){ // ./prog xxx xxx xxx (linha de comandos)
      		char *a = createBuf(argc,argv);
+     		if(a[0] == '-' && a[1] == 't') kill(pid,SIGKILL);
          	write(fd_cl_sv_write,a,strlen(a));
         	//write(fd_cl_sv_write,"\n",2);	
         }

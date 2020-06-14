@@ -177,6 +177,13 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 	
 
 	waitpid(tarefas[currentTarefa]->pidT, &status, 0);
+
+	char *string = calloc(20,sizeof(char));
+	if(!fork()){
+		sprintf(string,"temp_out%d.txt",currentTarefa+1);
+		execlp("rm","rm",string,NULL); // 1 - > fd_sv_cl_write
+		_exit(0);
+	}
 	write(fd_sv_cl_write,EXIT,sizeOfExit);
 
 	close(fd_fifo);
@@ -257,76 +264,44 @@ int terminaTarefa(int tarefa){
 		printf("tarefa terminada - exit status %d\n", WEXITSTATUS(status));
 	}
 	tarefas[tarefa-1]->status = 5;
-	return 1;
 
-
-	//close(fd_sv_cl_write); // mandar sinal que não tem output
-	//if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-	//	perror("open");
-	//}
 	
+	return 1;
 }
 
 void setTimeInactivity(int t){
     time_inactivity = t;
-    close(fd_sv_cl_write); // mandar sinal que não tem output
-	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-		perror("open");
-	}
 }
 
 void setTimeExecution(int t){
     time_execution = t;
-    close(fd_sv_cl_write); // mandar sinal que não tem output
-	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-		perror("open");
-	}
 }
 
 
 void printaAjuda(){
 	write(1,"argus$ :\n",9);
-	write(1,"	       ajuda\n",14);
-	write(1,"	       tempo-inatividade $(segs)\n",34);
-	write(1,"	       tempo-execucao $(segs)\n",31);
-	write(1,"	       executar p1 | p2 ... | pn\n",34);
-	write(1,"	       listar\n",15);
-	write(1,"	       historico\n",18);
-	write(1,"	       terminar $(tarefa)\n",27);
+	write(1,"          ajuda\n",16);
+	write(1,"          tempo-inatividade $(segs)\n",36);
+	write(1,"          tempo-execucao $(segs)\n",33);
+	write(1,"          executar p1 | p2 ... | pn\n",36);
+	write(1,"          listar\n",17);
+	write(1,"          historico\n",20);
+	write(1,"          terminar $(tarefa)\n",29);
+	write(1,"          output $(tarefa)\n",27);
 	write(1,"argus$ $(args) :\n",17);
-	write(1,"	       -h",11);
-	write(1,"	       -i $(segs)\n",19);
-	write(1,"	       -m $(segs)\n",19);
-	write(1,"	       -e 'p1 | p2 ... | pn'\n",30);
-	write(1,"	       -l\n",11);
-	write(1,"	       -r\n",11);
-	write(1,"	       -t $(tarefa)\n",21);
+	write(1,"          -h\n",13);
+	write(1,"          -i $(segs)\n",21);
+	write(1,"          -m $(segs)\n",21);
+	write(1,"          -e 'p1 | p2 ... | pn'\n",32);
+	write(1,"          -l\n",13);
+	write(1,"          -r\n",13);
+	write(1,"          -t $(tarefa)\n",23);
+	write(1,"          -o $(tarefa)\n",23);
 	write(1,EXIT,sizeOfExit);
 }
 
 
 
-int exec_command(char* command)
-{
-    char* exec_args[20];
-    char* string;
-    int exec_ret = 0;
-    int i = 0;
-
-    string = strtok(command, " ");
-
-    while (string != NULL) {
-        exec_args[i] = string;
-        string = strtok(NULL," ");
-        i++;
-    }
-
-    exec_args[i] = NULL;
-
-    exec_ret = execvp(exec_args[0], exec_args);
-
-    return exec_ret;
-}
 
 void sigQuitInactivity(int signum){
 	int currentTarefa;
@@ -354,6 +329,13 @@ void sigQuitInactivity(int signum){
 	write(fd_sv_cl_write,EXIT,sizeOfExit);
 
 	close(fd_fifo);
+
+	char *string = calloc(20,sizeof(char));
+	if(!fork()){
+		sprintf(string,"temp_out%d.txt",currentTarefa+1);
+		execlp("rm","rm",string,NULL); // 1 - > fd_sv_cl_write
+		_exit(0);
+	}
 }
 
 void killProcessUSR2_handler(int signum){ // comunica com pai a dizer que tarefa vai terminar por tempo de inatividade excedido
@@ -381,6 +363,28 @@ void warnParentInactivityHandler(int signum){
 	kill(tarefaResp,SIGINT); // responsável 
 }
 
+int exec_command(char* command)
+{
+    char* exec_args[20];
+    char* string;
+    int exec_ret = 0;
+    int i = 0;
+
+    string = strtok(command, " ");
+
+    while (string != NULL) {
+        exec_args[i] = string;
+        string = strtok(NULL," ");
+        i++;
+    }
+
+    exec_args[i] = NULL;
+
+    exec_ret = execvp(exec_args[0], exec_args);
+
+    return exec_ret;
+}
+
 int exec_pipe(char *buffer){
 	tarefaResp = getpid();
 	signal(SIGALRM,sigExecutionAlarmHandler); // execução
@@ -393,9 +397,8 @@ int exec_pipe(char *buffer){
     for (int i = 0; i < strlen(buffer); i++) {
         if (buffer[i] == '|')
             n++;
-    }
-
-	pidsfilhos[tar] = calloc(n,sizeof(int)); // não dá para fazer assim
+ }
+	pidsfilhos[tar] = calloc(n+1,sizeof(int));
 
     // parse do buffer para comandos
     char commands [n][128];                     // -> array com os comandos
@@ -427,9 +430,9 @@ int exec_pipe(char *buffer){
             return -1;
         }
     }
-
+    int i;
     // criar processos filhos para executar cada um dos comandos
-    for (int i = 0; i < n; i++) {
+    for (i = 0; i < n; i++) {
 
         if (i == 0) {
             switch(pid=fork()) {
@@ -574,16 +577,17 @@ int exec_pipe(char *buffer){
 
     char *string = calloc(20,sizeof(char));
     if((pid = fork()) == 0){
-    	dup2(p_aux[0],0);
+    	dup2(p_aux[0],0); // 0 -> p_aux[0]
     	close(p_aux[0]);
     	sprintf(string,"temp_out%d.txt",tar+1);
-		execlp("tee","tee",string,NULL);
+		execlp("tee","tee",string,NULL); // 1 - > fd_sv_cl_write
 		_exit(0);
     }
+    pidsfilhos[tar][i] = pid;
     wait(0L);
     // depois de criar os filhos, alarm
     
-    for (int i = 0; i < n; i++)
+    for (i = 0; i < n; i++)
     {
         wait(&status[i]);
         //if (WIFEXITED(status[i])) {
@@ -644,8 +648,6 @@ void printaTarefasEmExecucao(){
 
 
 int interpreter(char *line){
-	
-	
 	int r = 1;
 	char *aux = malloc(strlen(line) * sizeof(char));
 	strcpy(aux,line);
@@ -719,10 +721,8 @@ int interpreter(char *line){
 		//printf("%d\n",atoi(strtok(NULL,"\0"))); 	// [DEBUG]
 		char *a = strtok(NULL,"\0");
 		if(a && isdigitSTR(a)){
-			if(terminaTarefa(atoi(a)))
-				write(fd_sv_cl_write,EXIT,sizeOfExit);
+			terminaTarefa(atoi(a));
 		}
-		
 		write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
