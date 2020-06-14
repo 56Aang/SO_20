@@ -52,14 +52,16 @@ void signIntHandler(int signum){
 		wait(0L);
 	}
 	for(int i = 0; i<sizeMax;i++){
-		printf("pid:    %d\n",tarefas[i]->pidT );
-		printf("status: %d\n",tarefas[i]->status );
-		printf("tarefa: %s\n",tarefas[i]->tarefa);
-		printf("start offset: %d\n",tarefas[i]->o_start );
-		printf("end offset: %d\n",tarefas[i]->o_size );
+		//printf("pid:    %d\n",tarefas[i]->pidT );
+		//printf("status: %d\n",tarefas[i]->status );
+		//printf("tarefa: %s\n",tarefas[i]->tarefa);
+		//printf("start offset: %d\n",tarefas[i]->o_start );
+		//printf("end offset: %d\n",tarefas[i]->o_size );
 		if(tarefas[i]->tarefa) free(tarefas[i]->tarefa);
 		free(tarefas[i]);
+		free(pidsfilhos[i]);
 	}
+	free(tarefas);
 	free(pidsfilhos);
 	_exit(0);
 }
@@ -74,14 +76,6 @@ void sigusr1SignalHandler(int signum){
 	int aux = 0;
 
 	char buffer[MAX_LINE_SIZE];
-
-	//if (mkfifo(fifo_name,0666) == -1){
-	//	perror("mkfifo from child");
-	//}
-	//if (mkfifo("pipe_task_done",0666) == -1){ // cria fifo com pipe_task(tarefa)
-	//	perror("mkfifo from child");
-	//}
-
 
 	if((fd_fifo = open("pipe_task_done",O_RDONLY)) == -1){ // abre extremo de leitura
 		perror("open-2");
@@ -119,6 +113,7 @@ void sigusr1SignalHandler(int signum){
 			execlp("rm","rm",string,NULL);
 			_exit(0);
 		}
+		free(string);
 	}
 	else { // realloc do array
 		printf("entrou aqui e não é suposto\n");
@@ -157,9 +152,6 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 	int res;
 	char buffer[MAX_LINE_SIZE];
 	int status;
-	//if (mkfifo("pipe_task_executionTime",0666) == -1){ // cria fifo com pipe_task(tarefa)
-	//	perror("mkfifo from parent");
-	//}
 
 	if((fd_fifo = open("pipe_task_executionTime",O_RDONLY)) == -1){ // abre extremo de leitura
 		perror("open-3");
@@ -183,6 +175,7 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 		execlp("rm","rm",string,NULL); // 1 - > fd_sv_cl_write
 		_exit(0);
 	}
+	free(string);
 	write(fd_sv_cl_write,EXIT,sizeOfExit);
 
 	close(fd_fifo);
@@ -190,6 +183,7 @@ void execution_timeHandler(int signum){ // handler do pai, para abrir fifo de co
 
 void realloc_tarefa(){
 	tarefas = realloc(tarefas,2*sizeMax*sizeof(Tarefa));
+	pidsfilhos = realloc(tarefas,2*sizeMax*sizeof(int*));
 	for(int i = sizeMax; i<2*sizeMax;i++){
 		tarefas[i] = calloc(1,sizeof(struct struct_tarefa));
 	}
@@ -216,12 +210,12 @@ void sigExecutionAlarmHandler(int signum){ // handler do filho que recebe o sina
 	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
 
 	int i = 0;
-	while(pidsfilhos[tar][i]){
+	while(pidsfilhos[tar][i] && isdigit(pidsfilhos[tar][i])){
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
 	close(fd_fifo);
-
+	free(pidsfilhos[tar]);
 	_exit(0);
 }
 
@@ -244,9 +238,10 @@ void tarefaTerminada(){
 
 void killProcessUSR1_handler(int signum){
 	int i = 0;
-	while(pidsfilhos[tar][i]){
+	while(pidsfilhos[tar][i] && isdigit(pidsfilhos[tar][i])){
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
+	free(pidsfilhos[tar]);
 	_exit(0);
 }
 
@@ -270,6 +265,7 @@ int terminaTarefa(int tarefa){
 		execlp("rm","rm",string,NULL); // 1 - > fd_sv_cl_write
 		_exit(0);
 	}
+	free(string);
 
 	
 	return 1;
@@ -342,6 +338,7 @@ void sigQuitInactivity(int signum){
 		execlp("rm","rm",string,NULL); // 1 - > fd_sv_cl_write
 		_exit(0);
 	}
+	free(string);
 }
 
 void killProcessUSR2_handler(int signum){ // comunica com pai a dizer que tarefa vai terminar por tempo de inatividade excedido
@@ -356,11 +353,12 @@ void killProcessUSR2_handler(int signum){ // comunica com pai a dizer que tarefa
 	write(fd_fifo,buf,res); // filho comunica ao pai a sua tarefa;
 
 	int i = 0;
-	while(pidsfilhos[tar][i]){
+	while(pidsfilhos[tar][i] && isdigit(pidsfilhos[tar][i])){
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
 	close(fd_fifo);
+	free(pidsfilhos[tar]);
 
 	_exit(0);
 }
@@ -396,7 +394,7 @@ int exec_pipe(char *buffer){
 	signal(SIGALRM,sigExecutionAlarmHandler); // execução
 	signal(SIGUSR1,killProcessUSR1_handler);
 	signal(SIGINT,killProcessUSR2_handler); // inatividade
-	//tarefaEmExecucao(buffer);
+
 
 	// contar número de comandos passados à função
 	int n = 1,pid;                                  // -> número de comandos
@@ -447,8 +445,8 @@ int exec_pipe(char *buffer){
                     return -1;
                 case 0:
                     // codigo do filho 0
-                    close(p[i][0]);
                     if(n>1){
+                    close(p[i][0]);
                     	if(time_inactivity > 0){
                     		if(pipe(p_inat) == -1){
                 	    		perror("Pipe não foi criado");
@@ -596,23 +594,23 @@ int exec_pipe(char *buffer){
     for (i = 0; i < n; i++)
     {
         wait(&status[i]);
-        //if (WIFEXITED(status[i])) {
-        //    printf("[PAI]: filho terminou com %d, %d\n", WEXITSTATUS(status[i]),pidsfilhos[tar][i]);
-        //}
+
     }
+    free(pidsfilhos[tar]);
+    free(string);
 
     bzero(buffer, MAX_LINE_SIZE * sizeof(char));
     
-    //printf("\n\n");
+
 
 	return 0;
 }
 
 
 void printaHistorico(){
-	char *aux = "";
+	char *aux;
 	char aux2[MAX_LINE_SIZE];
-	char *string = calloc(tar*MAX_LINE_SIZE,sizeof(char));
+	char *string;
 	for(int i = 0; i < tar ; i++){
 		if(tarefas[i]->status == 1);
 		else{
@@ -621,19 +619,11 @@ void printaHistorico(){
 			else if(tarefas[i]->status == 4) aux = "max execução";
 			else if(tarefas[i]->status == 5) aux = "killed";
 			sprintf(aux2,"#%d, %s: %s\n", i+1,aux,tarefas[i]->tarefa);
-			write(fd_sv_cl_write,aux2,strlen(aux2));
-			//strcat(string,aux2);
+			int length = strlen(aux2);
+			write(fd_sv_cl_write,aux2,length);
 		}
 	}
-	//write(fd_sv_cl_write,string,strlen(string));
-	
 
-	//if(strlen(string) == 0) {
-	//	close(fd_sv_cl_write);
-	//	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-	//		perror("open");
-	//	}
-	//}
 }
 
 void printaTarefasEmExecucao(){
@@ -645,29 +635,22 @@ void printaTarefasEmExecucao(){
 			write(fd_sv_cl_write,aux,strlen(aux));
 		}
 	}
-	//write(fd_sv_cl_write,string,strlen(string));
-	//if(strlen(string) == 0) {
-	//	close(fd_sv_cl_write);
-	//	if((fd_sv_cl_write = open("fifo-sv-cl",O_WRONLY)) == -1){
-	//		perror("open");
-	//	}
-	//}
+
 }
 
 
 
 int interpreter(char *line){
 	int r = 1;
-	char *aux = malloc(strlen(line) * sizeof(char));
-	strcpy(aux,line);
-    char *string = strtok(aux," ");
+	//char *aux = malloc(strlen(line) * sizeof(char));
+	//strcpy(aux,line);
+    char *string = strtok(line," ");
     int pid;
 
     if(strcmp(string,"tempo-inatividade") == 0 || strcmp(string,"-i") == 0){
         char *a = strtok(NULL," ");
         if(a && isdigitSTR(a)) {
         	setTimeInactivity(atoi(a));
-        	printf("changed to %d\n", atoi(a));
         }
         write(fd_sv_cl_write,EXIT,sizeOfExit);
     }
@@ -675,7 +658,6 @@ int interpreter(char *line){
         char *a = strtok(NULL," ");
         if(a && isdigitSTR(a)) {
         	setTimeExecution(atoi(a));
-        	printf("changed to %d\n", atoi(a));
         }
         write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
@@ -686,10 +668,7 @@ int interpreter(char *line){
 			if((pid = fork()) == 0){
 				dup2(fd_sv_cl_write,1);
 				close(fd_sv_cl_write);
-//******************TESTE*******************
-// acrescentar uma tarefa em execução
 
-//******************************************
 				exec_pipe(string);
 			// tarefa concluida
 				kill(getppid(),SIGUSR1);
@@ -719,15 +698,12 @@ int interpreter(char *line){
 	}
 	
 	else if(strcmp(string,"listar") == 0 || strcmp(string,"-l") == 0) {
-		//int save = dup(1);
-		//dup2(fd_sv_cl_write,1);
 		printaTarefasEmExecucao();
 		write(fd_sv_cl_write,EXIT,sizeOfExit);
-		//dup2(save,1);
+
 	}
 	
 	else if(strcmp(string,"terminar") == 0 || strcmp(string,"-t") == 0){
-		//printf("%d\n",atoi(strtok(NULL,"\0"))); 	// [DEBUG]
 		char *a = strtok(NULL,"\0");
 		if(a && isdigitSTR(a)){
 			terminaTarefa(atoi(a));
@@ -735,10 +711,8 @@ int interpreter(char *line){
 		write(fd_sv_cl_write,EXIT,sizeOfExit);
 	}
 	else if(strcmp(string,"historico") == 0 || strcmp(string,"-r") == 0){
-		//dup2(fd_sv_cl_write,1);
 		printaHistorico();
 		write(fd_sv_cl_write,EXIT,sizeOfExit);
-		//dup2(save,1);
 	}
 	else if(strcmp(string,"ajuda") == 0 || strcmp(string,"-h") == 0){
 		int save = dup(1);
@@ -757,7 +731,6 @@ int interpreter(char *line){
     	r = 0;
     	write(fd_sv_cl_write,EXIT,sizeOfExit);
     }
-	free(aux);
 
 	return r;
 }
@@ -777,13 +750,6 @@ int main(int argc, char* argv[]){
 	int status;
 	int fd_logs;
 
-	//if((pid = fork()) == 0){ // cria 2 fifos
-	//	execl("/home/joao/SO_20/src/mkfifo","mkfifo",NULL);
-	//	_exit(1);
-	//}
-	//else{
-	//	wait(&status);
-	//}
 	if((fd_logs = open("logs.txt",O_CREAT | O_TRUNC,0666)) == -1){
 		perror("open logs");
 		return -1;
@@ -822,16 +788,6 @@ int main(int argc, char* argv[]){
 	else
 		printf("[DEBUG] opened fifo sv-cl for reading\n");
 
-	
-
-//**************TESTE**************************************
-
-//*********************************************************
-
-
-
-
-	
 
 	while((bytes_read = read(fd_cl_sv_read,buf,MAX_LINE_SIZE)) > 0){ // lê do pipe, executa
 		buf[bytes_read] = '\0';
