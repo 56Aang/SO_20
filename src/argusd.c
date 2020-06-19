@@ -209,7 +209,7 @@ void sigExecutionAlarmHandler(int signum){ // handler do filho que recebe o sina
 	write(fd_fifo,buf,res); // filho comunica ao pai o seu pid;
 
 	int i = 0;
-	while(pidsfilhos[tar][i] && isdigit(pidsfilhos[tar][i])){
+	while(pidsfilhos[tar][i]){
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
@@ -237,7 +237,7 @@ void tarefaTerminada(){
 
 void killProcessUSR1_handler(int signum){
 	int i = 0;
-	while(pidsfilhos[tar][i] && isdigit(pidsfilhos[tar][i])){
+	while(pidsfilhos[tar][i]){
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 	free(pidsfilhos[tar]);
@@ -352,7 +352,7 @@ void killProcessUSR2_handler(int signum){ // comunica com pai a dizer que tarefa
 	write(fd_fifo,buf,res); // filho comunica ao pai a sua tarefa;
 
 	int i = 0;
-	while(pidsfilhos[tar][i] && isdigit(pidsfilhos[tar][i])){
+	while(pidsfilhos[tar][i]){
 		kill(pidsfilhos[tar][i++],SIGKILL);
 	}
 
